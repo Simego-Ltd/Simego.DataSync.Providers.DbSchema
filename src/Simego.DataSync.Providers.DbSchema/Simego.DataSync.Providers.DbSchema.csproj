@@ -25,7 +25,4 @@
       <DependentUpon>ConnectionInterface.cs</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="readme.txt" />
-  </ItemGroup>
 </Project>

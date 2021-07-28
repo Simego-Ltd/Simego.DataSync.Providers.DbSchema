@@ -2,7 +2,7 @@
   "profiles": {
     "Simego.DataSync.Providers.DbSchema": {
       "commandName": "Project",
-      "commandLineArgs": "-debug \"C:\\Users\\Sean\\source\\Simego.DataSync.Providers.DbSchema\\bin\\Debug\\net472\""
+      "commandLineArgs": "-debug \"C:\\Users\\Sean\\source\\GitHub\\DbSchemaSync\\src\\Simego.DataSync.Providers.DbSchema\\bin\\Debug\\net472\""
     }
   }
 }

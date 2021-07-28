@@ -5,6 +5,7 @@ using Simego.DataSync.Providers.DbSchema.Models;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Linq;
 
 namespace Simego.DataSync.Providers.DbSchema
 {
@@ -49,28 +50,36 @@ namespace Simego.DataSync.Providers.DbSchema
                                 var column = ToTableColumn(targetItem);
                                 var sql = DbProvider.GenerateAddTableColumn(schema, table, column);
 
-                                status.Message(sql);
+                                if(DataSourceReader.OutputSqlTrace)
+                                    status.Message(sql);
 
-                                using (var cmd = Connection.CreateCommand())
+                                if (!DataSourceReader.DoNotExecute)
                                 {
-                                    cmd.CommandType = System.Data.CommandType.Text;
-                                    cmd.CommandText = sql;
-                                    cmd.ExecuteNonQuery();
+                                    using (var cmd = Connection.CreateCommand())
+                                    {
+                                        cmd.CommandType = System.Data.CommandType.Text;
+                                        cmd.CommandText = sql;
+                                        cmd.ExecuteNonQuery();
+                                    }
                                 }
                             }
                             // TABLE_INDEX
                             if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
                             {
-                                var index = ToTableIndex(targetItem);
+                                var index = ToTableIndex(targetItem, null);
                                 var sql = DbProvider.GenerateCreateIndex(schema, table, index);
-                                
-                                status.Message(sql);
 
-                                using (var cmd = Connection.CreateCommand())
+                                if (DataSourceReader.OutputSqlTrace)
+                                    status.Message(sql);
+
+                                if (!DataSourceReader.DoNotExecute)
                                 {
-                                    cmd.CommandType = System.Data.CommandType.Text;
-                                    cmd.CommandText = sql;
-                                    cmd.ExecuteNonQuery();
+                                    using (var cmd = Connection.CreateCommand())
+                                    {
+                                        cmd.CommandType = System.Data.CommandType.Text;
+                                        cmd.CommandText = sql;
+                                        cmd.ExecuteNonQuery();
+                                    }
                                 }
                             }
                             //Call the Automation AfterAddItem (pass the created item identifier if possible)
@@ -134,40 +143,55 @@ namespace Simego.DataSync.Providers.DbSchema
                                 if (targetChanges.ContainsKey("Length") || targetChanges.ContainsKey("NotNull"))
                                 {
                                     var sql = DbProvider.GenerateAlterTableColumn(schema, table, column);
-                                    status.Message(sql);
+                                    
+                                    if (DataSourceReader.OutputSqlTrace)
+                                        status.Message(sql);
 
-                                    using (var cmd = Connection.CreateCommand())
+                                    if (!DataSourceReader.DoNotExecute)
                                     {
-                                        cmd.CommandType = System.Data.CommandType.Text;
-                                        cmd.CommandText = sql;
-                                        cmd.ExecuteNonQuery();
+                                        using (var cmd = Connection.CreateCommand())
+                                        {
+                                            cmd.CommandType = System.Data.CommandType.Text;
+                                            cmd.CommandText = sql;
+                                            cmd.ExecuteNonQuery();
+                                        }
                                     }
                                 }
                                 if (targetChanges.ContainsKey("ColumnDefault"))
                                 {
                                     var sql = DbProvider.GenerateAlterColumnDefault(schema, table, column);
-                                    status.Message(sql);
+                                    
+                                    if (DataSourceReader.OutputSqlTrace)
+                                        status.Message(sql);
 
-                                    using (var cmd = Connection.CreateCommand())
+                                    if (!DataSourceReader.DoNotExecute)
                                     {
-                                        cmd.CommandType = System.Data.CommandType.Text;
-                                        cmd.CommandText = sql;
-                                        cmd.ExecuteNonQuery();
+                                        using (var cmd = Connection.CreateCommand())
+                                        {
+                                            cmd.CommandType = System.Data.CommandType.Text;
+                                            cmd.CommandText = sql;
+                                            cmd.ExecuteNonQuery();
+                                        }
                                     }
                                 }
                             }
                             // TABLE_INDEX
                             if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
                             {
-                                var index = ToTableIndex(targetItem);
+                                var index = ToTableIndex(targetItem, null);
                                 var sql = DbProvider.GenerateAlterIndex(schema, table, index, itemIdentifier);
-                                status.Message(sql);
+                                
+                                if (DataSourceReader.OutputSqlTrace)
+                                    status.Message(sql);
 
-                                using (var cmd = Connection.CreateCommand())
+                                if (!DataSourceReader.DoNotExecute)
                                 {
-                                    cmd.CommandType = System.Data.CommandType.Text;
-                                    cmd.CommandText = sql;
-                                    cmd.ExecuteNonQuery();
+                                    using (var cmd = Connection.CreateCommand())
+                                    {
+                                        cmd.CommandType = System.Data.CommandType.Text;
+                                        cmd.CommandText = sql;
+                                        cmd.ExecuteNonQuery();
+                                    }
                                 }
                             }
 
@@ -199,65 +223,55 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 int currentItem = 0;
 
+                var tables = new List<DbSchemaTable>();
+
+                // Convert source data to a Table List.
                 foreach (var item in items)
+                {
+                    var targetItem = AddItemToDictionary(Mapping, item);
+
+                    var schema = DataSchemaTypeConverter.ConvertTo<string>(targetItem["Schema"]);
+                    var name = DataSchemaTypeConverter.ConvertTo<string>(targetItem["TableName"]);
+                    var objectType = DataSchemaTypeConverter.ConvertTo<string>(targetItem["ObjectType"]);
+
+                    var table = GetTable(tables, schema, name);
+                    if (table != null)
+                    {
+                        // TABLE_COLUMN
+                        if (objectType == "TABLE_COLUMN")
+                        {
+                            table.Columns.Add(ToTableColumn(targetItem));
+                        }
+                        // TABLE_INDEX
+                        if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
+                        {
+                            table.Indexes.Add(ToTableIndex(targetItem, item.GetTargetIdentifier<string>()));
+                        }
+                    }
+                }
+
+                // Process the Tables
+                foreach (var item in tables)
                 {
                     if (!status.ContinueProcessing)
                         break;
 
                     try
-                    {
-                        var itemInvariant = new DataCompareItemInvariant(item);
-                        var itemIdentifier = itemInvariant.GetTargetIdentifier<string>();
+                    {                        
+                        var sql = DbProvider.GenerateDeleteTableObjects(item);
 
-                        //Call the Automation BeforeDeleteItem (Optional only required if your supporting Automation Item Events)
-                        Automation?.BeforeDeleteItem(this, itemInvariant, itemIdentifier);
+                        if (DataSourceReader.OutputSqlTrace)
+                            status.Message(sql);
 
-                        if (itemInvariant.Sync)
+                        if (!DataSourceReader.DoNotExecute)
                         {
-                            #region Delete Item
-
-                            Dictionary<string, object> targetItem = AddItemToDictionary(Mapping, itemInvariant);
-                            
-                            var schema = DataSchemaTypeConverter.ConvertTo<string>(targetItem["Schema"]);
-                            var table = DataSchemaTypeConverter.ConvertTo<string>(targetItem["TableName"]);                            
-                            var objectType = DataSchemaTypeConverter.ConvertTo<string>(targetItem["ObjectType"]);
-                            
-                            // TABLE_COLUMN
-                            if (objectType == "TABLE_COLUMN")
+                            using (var cmd = Connection.CreateCommand())
                             {
-                                var column = ToTableColumn(targetItem);
-                                var sql = DbProvider.GenerateDropTableColumn(schema, table, column);
-
-                                status.Message(sql);
-
-                                using (var cmd = Connection.CreateCommand())
-                                {
-                                    cmd.CommandType = System.Data.CommandType.Text;
-                                    cmd.CommandText = sql;
-                                    cmd.ExecuteNonQuery();
-                                }
+                                cmd.CommandType = System.Data.CommandType.Text;
+                                cmd.CommandText = sql;
+                                cmd.ExecuteNonQuery();
                             }
-                            // TABLE_INDEX
-                            if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
-                            {
-                                var index = ToTableIndex(targetItem);
-                                var sql = DbProvider.GenerateDropIndex(schema, table, index, itemIdentifier);
-                                status.Message(sql);
-
-                                using (var cmd = Connection.CreateCommand())
-                                {
-                                    cmd.CommandType = System.Data.CommandType.Text;
-                                    cmd.CommandText = sql;
-                                    cmd.ExecuteNonQuery();
-                                }
-                            }
-                            #endregion
-
-                            //Call the Automation AfterDeleteItem 
-                            Automation?.AfterDeleteItem(this, itemInvariant, itemIdentifier);
                         }
-
-                        ClearSyncStatus(item); //Clear the Sync Flag on Processed Rows
                     }
                     catch (SystemException e)
                     {
@@ -265,9 +279,8 @@ namespace Simego.DataSync.Providers.DbSchema
                     }
                     finally
                     {
-                        status.Progress(items.Count, ++currentItem); //Update the Sync Progress
+                        status.Progress(tables.Count, ++currentItem); //Update the Sync Progress
                     }
-
                 }
             }
         }
@@ -355,7 +368,13 @@ namespace Simego.DataSync.Providers.DbSchema
             return column;
         }
 
-        private DbSchemaTableColumnIndex ToTableIndex(IDictionary<string, object> targetItem)
+        /// <summary>
+        /// Returns a DbSchemaTableColumnIndex from a Dictionary.
+        /// </summary>
+        /// <param name="targetItem">Dictionary of name value pairs to build DbSchemaTableColumnIndex from</param>
+        /// <param name="name">Name to use inplace of the name value in the dictionary.</param>
+        /// <returns></returns>
+        private DbSchemaTableColumnIndex ToTableIndex(IDictionary<string, object> targetItem, string name)
         {
             var index = new DbSchemaTableColumnIndex();
 
@@ -365,7 +384,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 {
                     case "Name":
                         {
-                            index.Name = DataSchemaTypeConverter.ConvertTo<string>(targetItem[key]);
+                            index.Name = DataSchemaTypeConverter.ConvertTo<string>(name ?? targetItem[key]);
                             break;
                         }
                     case "Columns":
@@ -402,6 +421,19 @@ namespace Simego.DataSync.Providers.DbSchema
 
             }
             return index;
+        }
+
+        private DbSchemaTable GetTable(List<DbSchemaTable> tables, string schema, string name)
+        {
+            var table = tables.FirstOrDefault(p => p.Schema == schema && p.Name == name);
+            if(table != null)
+            {
+                return table;
+            }
+
+            table = new DbSchemaTable { Schema = schema, Name = name };
+            tables.Add(table);
+            return table;
         }
     }
 }

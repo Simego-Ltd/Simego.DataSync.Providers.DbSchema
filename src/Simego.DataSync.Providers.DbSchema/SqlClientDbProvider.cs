@@ -489,6 +489,61 @@ namespace Simego.DataSync.Providers.DbSchema
             return sb.ToString();
         }
 
+        public string GenerateDeleteTableObjects(DbSchemaTable table)
+        {
+            var sb = new StringBuilder();
+            if (table.Columns.Count > 0)
+            {
+                // Drop Columns
+
+                // Check if the number of columns to drop match the number of table columns then drop the table.
+                using (var connection = GetConnection())
+                {
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandType = CommandType.Text;
+                        cmd.CommandText = "select count(*) from information_schema.columns WHERE table_schema=@p0 AND table_name=@p1";
+
+                        cmd.Parameters.Add(CreateParameter(0, table.Schema.ToLower()));
+                        cmd.Parameters.Add(CreateParameter(1, table.Name.ToLower()));
+
+                        var tableColumnsCount = DataSchemaTypeConverter.ConvertTo<int>(cmd.ExecuteScalar());
+
+                        if (table.Columns.Count == tableColumnsCount)
+                        {
+                            //We just drop the table and return at this point.
+                            sb.AppendLine($"DROP TABLE [{table.Schema}[.[{table.Name}]");
+                            return sb.ToString();
+                        }
+                        else
+                        {
+                            sb.AppendLine($"ALTER TABLE [{table.Schema}].[{table.Name}] ");
+                            for (int i = 0; i < table.Columns.Count; i++)
+                            {
+                                if (i > 0) sb.AppendLine(",");
+                                sb.Append($"\tDROP COLUMN [{table.Columns[i].Name}]");
+                            }
+                            sb.Append(";");
+                        }
+                    }
+                }
+
+            }
+            if (table.Indexes.Count > 0)
+            {
+                // Drop Indexes
+                foreach (var index in table.Indexes)
+                {
+                    //Ignore dropping Primary keys as this just seems wrong.
+                    if (index.PrimaryKey) continue;
+                    //Add to the script the Drop Index
+                    sb.AppendLine(GenerateDropIndex(table.Schema, table.Name, index, index.Name));
+                }
+            }
+
+            return sb.ToString();
+        }
+
         private DbSchemaColumnDefault ToColumnDefault(DbDataReader reader)
         {
             var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader["COLUMN_DEFAULT"]);
@@ -547,6 +602,15 @@ namespace Simego.DataSync.Providers.DbSchema
                         return DbSchemaColumnDataType.Text;
                     }
             }
+        }
+
+        private DbParameter CreateParameter(int index, string value)
+        {
+            var p = new SqlParameter();
+            p.ParameterName = $"@p{index}";
+            p.DbType = DbType.String;
+            p.Value = value;
+            return p;
         }
     }
 }

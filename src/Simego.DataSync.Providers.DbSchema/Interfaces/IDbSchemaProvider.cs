@@ -13,6 +13,8 @@ namespace Simego.DataSync.Providers.DbSchema.Interfaces
         void GetColumns(IDictionary<string, DbSchemaTable> tables);
         void GetIndexes(IDictionary<string, DbSchemaTable> tables);
 
+        string GenerateDeleteTableObjects(DbSchemaTable table);
+
         //Columns
         string GenerateAddTableColumn(string schema, string table, DbSchemaTableColumn column);
         string GenerateAlterTableColumn(string schema, string table, DbSchemaTableColumn column);

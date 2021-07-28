@@ -15,6 +15,8 @@ namespace Simego.DataSync.Providers.DbSchema
     public partial class DbSchemaDatasourceReader : DataReaderProviderBase, IDataSourceSetup
     {
         private ConnectionInterface _connectionIf;
+        
+        [Browsable(false)]
         public IDbSchemaProvider DbProvider { get; private set; }
 
         [Category("Settings")]
@@ -22,6 +24,12 @@ namespace Simego.DataSync.Providers.DbSchema
 
         [Category("Settings")]
         public string CommandWhere { get; set; }
+
+        [Category("Settings")]
+        public bool OutputSqlTrace { get; set; } = true;
+
+        [Category("Settings")]
+        public bool DoNotExecute { get; set; } = true;
 
         public DbSchemaDatasourceReader()
         {
@@ -129,7 +137,9 @@ namespace Simego.DataSync.Providers.DbSchema
             return new List<ProviderParameter>
                        {
                             new ProviderParameter("ConnectionString", ConnectionString, GetConfigKey("ConnectionString")),
-                            new ProviderParameter("CommandWhere", CommandWhere, GetConfigKey("CommandWhere"))
+                            new ProviderParameter("CommandWhere", CommandWhere, GetConfigKey("CommandWhere")),
+                            new ProviderParameter("OutputSqlTrace", OutputSqlTrace.ToString(), GetConfigKey("OutputSqlTrace")),
+                            new ProviderParameter("DoNotExecute", DoNotExecute.ToString(), GetConfigKey("DoNotExecute"))
                        };
         }
 
@@ -150,6 +160,22 @@ namespace Simego.DataSync.Providers.DbSchema
                     case "CommandWhere":
                         {
                             CommandWhere = p.Value;
+                            break;
+                        }
+                    case "OutputSqlTrace":
+                        {
+                            if (bool.TryParse(p.Value, out bool val))
+                            {
+                                OutputSqlTrace = val;
+                            }
+                            break;
+                        }
+                    case "DoNotExecute":
+                        {
+                            if (bool.TryParse(p.Value, out bool val))
+                            {
+                                DoNotExecute = val;
+                            }
                             break;
                         }
                     default:
