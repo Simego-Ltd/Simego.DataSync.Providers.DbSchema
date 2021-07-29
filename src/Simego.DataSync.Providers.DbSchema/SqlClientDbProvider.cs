@@ -15,6 +15,8 @@ namespace Simego.DataSync.Providers.DbSchema
         private DbSchemaDatasourceReader Reader { get; set; }
         private IDictionary<string, string> ColumnDefaultNames { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        public string Name => "SqlClient";
+
         public SqlClientDbProvider(DbSchemaDatasourceReader reader)
         {
             Reader = reader ?? throw new ArgumentNullException(nameof(reader));
@@ -222,7 +224,17 @@ namespace Simego.DataSync.Providers.DbSchema
 
         public string GenerateDropTableColumn(string schema, string table, DbSchemaTableColumn column)
         {
-            return $"ALTER TABLE [{schema}].[{table}] DROP COLUMN [{column.Name}]";
+            var sb = new StringBuilder();
+
+            // If this Column has a Default we need to drop it first.
+            if (ColumnDefaultNames.TryGetValue($"{schema}.{table}.{column.Name}", out string name))
+            {
+                sb.AppendLine($"ALTER TABLE [{schema}].[{table}] DROP CONSTRAINT [{name}] ");
+            }
+
+            sb.AppendLine($"ALTER TABLE [{schema}].[{table}] DROP COLUMN [{column.Name}]");
+
+            return sb.ToString();
         }
 
         public string GenerateCreateIndex(string schema, string table, DbSchemaTableColumnIndex index)
@@ -287,7 +299,6 @@ namespace Simego.DataSync.Providers.DbSchema
                         {
                             //We need to create the Table
                             sb.AppendLine($"CREATE TABLE [{table.Schema}].[{table.Name}] (");
-
                             for (int i = 0; i < table.Columns.Count; i++)
                             {
                                 DbSchemaTableColumn column = table.Columns[i];
@@ -299,15 +310,8 @@ namespace Simego.DataSync.Providers.DbSchema
                         else
                         {
                             //We need to Add Columns to the Table
-                            sb.AppendLine($"ALTER TABLE [{table.Schema}].[{table.Name}] ");
-
-                            for (int i = 0; i < table.Columns.Count; i++)
-                            {
-                                DbSchemaTableColumn column = table.Columns[i];
-                                if (i > 0) sb.AppendLine(",");
-                                sb.Append($"\tADD [{column.Name}] {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}");
-                            }
-                            sb.AppendLine();
+                            var columnsToAdd = string.Join(",", table.Columns.Select(p => $"[{p.Name}] {ToSqlType(p)} {ToSqlNotNull(p)} {ToSqlDefault(p)}"));
+                            sb.AppendLine($"ALTER TABLE [{table.Schema}].[{table.Name}] ADD {columnsToAdd}");                            
                         }
                     }
                 }
@@ -407,13 +411,21 @@ namespace Simego.DataSync.Providers.DbSchema
                         }
                         else
                         {
-                            sb.AppendLine($"ALTER TABLE [{table.Schema}].[{table.Name}] ");
-                            for (int i = 0; i < table.Columns.Count; i++)
+                            var defaultsToDrop = new List<string>();
+                            foreach(var column in table.Columns)
                             {
-                                if (i > 0) sb.AppendLine(",");
-                                sb.Append($"\tDROP COLUMN [{table.Columns[i].Name}]");
+                                if (ColumnDefaultNames.TryGetValue($"{table.Schema}.{table.Name}.{column.Name}", out string constraintName))
+                                {
+                                    defaultsToDrop.Add(constraintName);
+                                }
                             }
-                            sb.Append(";");
+                            if (defaultsToDrop.Any())
+                            {
+                                sb.AppendLine($"ALTER TABLE [{table.Schema}].[{table.Name}] DROP CONSTRAINT {string.Join(",", defaultsToDrop.Select(p => $"[{p}]"))}");
+                            }
+                            
+                            var columnsToDrop = string.Join(",", table.Columns.Select(p => $"[{p.Name}]"));
+                            sb.AppendLine($"ALTER TABLE [{table.Schema}].[{table.Name}] DROP COLUMN {columnsToDrop}");                            
                         }
                     }
                 }

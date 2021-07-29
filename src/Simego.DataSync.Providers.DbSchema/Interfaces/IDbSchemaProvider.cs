@@ -6,6 +6,7 @@ namespace Simego.DataSync.Providers.DbSchema.Interfaces
 {
     public interface IDbSchemaProvider
     {
+        string Name { get; }
         DbConnection GetConnection();
         void Initialize(DbConnection connection);
 

@@ -11,7 +11,7 @@ using System.Windows.Forms;
 
 namespace Simego.DataSync.Providers.DbSchema
 {
-    [ProviderInfo(Name = "DbSchema Synchronisation", Description = "Synchronisation Database Schema")]
+    [ProviderInfo(Name = "DbSchema Synchronisation", Description = "Simego Database Schema Synchronisation", Group = "SQL")]
     public partial class DbSchemaDatasourceReader : DataReaderProviderBase, IDataSourceSetup
     {
         private ConnectionInterface _connectionIf;
@@ -19,7 +19,10 @@ namespace Simego.DataSync.Providers.DbSchema
         [Browsable(false)]
         public IDbSchemaProvider DbProvider { get; private set; }
 
-        [Category("Settings")]
+        [Category("Connection")]
+        public string DbProviderType => DbProvider.Name;
+        
+        [Category("Connection")]
         public string ConnectionString { get; set; }
 
         [Category("Settings")]
@@ -138,10 +141,11 @@ namespace Simego.DataSync.Providers.DbSchema
             //Return the Provider Settings so we can save the Project File.
             return new List<ProviderParameter>
                        {
-                            new ProviderParameter("ConnectionString", ConnectionString, GetConfigKey("ConnectionString")),
-                            new ProviderParameter("CommandWhere", CommandWhere, GetConfigKey("CommandWhere")),
-                            new ProviderParameter("OutputSqlTrace", OutputSqlTrace.ToString(), GetConfigKey("OutputSqlTrace")),
-                            new ProviderParameter("DoNotExecute", DoNotExecute.ToString(), GetConfigKey("DoNotExecute"))
+                            new ProviderParameter("DbProvider", DbProvider.Name),
+                            new ProviderParameter("ConnectionString", ConnectionString),
+                            new ProviderParameter("CommandWhere", CommandWhere),
+                            new ProviderParameter("OutputSqlTrace", OutputSqlTrace.ToString()),
+                            new ProviderParameter("DoNotExecute", DoNotExecute.ToString())
                        };
         }
 
@@ -154,6 +158,11 @@ namespace Simego.DataSync.Providers.DbSchema
 
                 switch (p.Name)
                 {
+                    case "DbProvider":
+                        {
+                            SetProvider(p.Value);
+                            break;
+                        }
                     case "ConnectionString":
                         {
                             ConnectionString = p.Value;
@@ -185,7 +194,7 @@ namespace Simego.DataSync.Providers.DbSchema
                             break;
                         }
                 }
-            }
+            }            
         }
 
         public override IDataSourceWriter GetWriter()
@@ -207,7 +216,7 @@ namespace Simego.DataSync.Providers.DbSchema
             _connectionIf.Font = parent.Font;
             _connectionIf.Size = new Size(parent.Width, parent.Height);
             _connectionIf.Location = new Point(0, 0);
-            _connectionIf.Dock = System.Windows.Forms.DockStyle.Fill;
+            _connectionIf.Dock = DockStyle.Fill;
 
             parent.Controls.Add(_connectionIf);
         }
@@ -218,10 +227,9 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 if (string.IsNullOrEmpty(ConnectionString))
                 {
-                    throw new ArgumentException("You must specify a valid ExampleSetting.");
+                    throw new ArgumentException("You must specify a valid ConnectionString.");
                 }
 
-                //GetDefaultDataSchema(); // Option - Verify the Schema Loads.
                 return true;
             }
             catch (Exception e)
@@ -260,6 +268,18 @@ namespace Simego.DataSync.Providers.DbSchema
             }
 
             return result;
+        }
+
+        public void SetProvider(string name)
+        {
+            if (name == "SqlClient")
+            {
+                DbProvider = new SqlClientDbProvider(this);
+            }
+            else
+            {
+                DbProvider = new PostgreSqlDbProvider(this);
+            }
         }
     }
 }

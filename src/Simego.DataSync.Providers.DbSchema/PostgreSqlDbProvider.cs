@@ -14,6 +14,8 @@ namespace Simego.DataSync.Providers.DbSchema
         private DbSchemaDatasourceReader Reader { get; set; }
         private DbProviderFactory Factory = DbProviderFactories.GetFactory("Npgsql");
 
+        public string Name => "Npgsql";
+
         public PostgreSqlDbProvider(DbSchemaDatasourceReader reader)
         {
             Reader = reader ?? throw new ArgumentNullException(nameof(reader));
