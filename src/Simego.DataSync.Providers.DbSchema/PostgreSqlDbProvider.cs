@@ -39,7 +39,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 using (var cmd = connection.CreateCommand())
                 {
                     cmd.CommandType = CommandType.Text;
-                    cmd.CommandText = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS";
+                    cmd.CommandText = DbInformationSchemaConstants.Q_COLUMNS;
                     if (!string.IsNullOrEmpty(Reader.CommandWhere))
                     {
                         cmd.CommandText = $"{cmd.CommandText} WHERE {Reader.CommandWhere}";
@@ -49,8 +49,8 @@ namespace Simego.DataSync.Providers.DbSchema
 
                     while (reader.Read())
                     {
-                        var schemaName = DataSchemaTypeConverter.ConvertTo<string>(reader["TABLE_SCHEMA"]);
-                        var tableName = DataSchemaTypeConverter.ConvertTo<string>(reader["TABLE_NAME"]);
+                        var schemaName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_SCHEMA]);
+                        var tableName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_NAME]);
 
                         var key = $"{schemaName}.{tableName}";
 
@@ -58,16 +58,16 @@ namespace Simego.DataSync.Providers.DbSchema
                             tables[key] = new DbSchemaTable { Schema = schemaName, Name = tableName };
 
                         var t = tables[key];
-
+                        
                         t.Columns.Add(
                             new DbSchemaTableColumn
                             {
-                                Name = DataSchemaTypeConverter.ConvertTo<string>(reader["COLUMN_NAME"]),
+                                Name = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_NAME]),
                                 Type = ToDataType(reader),
                                 PrimaryKey = false,
-                                Identity = false,
-                                Length = DataSchemaTypeConverter.ConvertTo<int?>(reader["CHARACTER_MAXIMUM_LENGTH"]) ?? -1,
-                                NotNull = !DataSchemaTypeConverter.ConvertTo<bool>(reader["IS_NULLABLE"]),
+                                Identity = ToColumnIdentity(reader),
+                                Length = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_CHARACTER_LENGTH]) ?? -1,
+                                NotNull = !DataSchemaTypeConverter.ConvertTo<bool>(reader[DbInformationSchemaConstants.C_IS_NULLABLE]),
                                 Default = ToColumnDefault(reader)
                             });
                     }
@@ -76,9 +76,7 @@ namespace Simego.DataSync.Providers.DbSchema
         }
     
         public void GetIndexes(IDictionary<string, DbSchemaTable> tables)
-        {
-            //select * from "information_schema"."key_column_usage"
-
+        {            
             var sb = new StringBuilder();
 
             sb.AppendLine("SELECT s.*, t.*, c.constraint_type FROM pg_indexes s ");
@@ -88,7 +86,7 @@ namespace Simego.DataSync.Providers.DbSchema
             sb.AppendLine("LEFT JOIN pg_namespace n ON n.oid = c.relnamespace ");
             sb.AppendLine("WHERE c.relkind = ANY(ARRAY['r', 't']) AND i.relname NOT LIKE 'pg%'");
             sb.AppendLine(") t ON s.indexname = t.index_name ");
-            sb.AppendLine("LEFT JOIN information_schema.table_constraints c ON c.constraint_name = t.index_name");
+            sb.AppendLine("LEFT JOIN information_schema.table_constraints c ON c.table_schema = s.schemaname AND c.constraint_name = t.index_name");
             sb.AppendLine("WHERE t.index_name IS NOT null");
 
             using (var connection = GetConnection())
@@ -148,142 +146,17 @@ namespace Simego.DataSync.Providers.DbSchema
 
         public string GenerateAddTableColumn(string schema, string table, DbSchemaTableColumn column)
         {
-            var sb = new StringBuilder();
-
-            sb.Append($"ALTER TABLE \"{schema.ToLower()}\".\"{table.ToLower()}\" ADD {column.Name.ToLower()} ");
-
-            switch (column.Type)
-            {
-                case DbSchemaColumnDataType.BigInteger:
-                    {
-                        sb.Append(column.Identity ? "bigserial " : "bigint ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Integer:
-                    {
-                        sb.Append(column.Identity ? "serial " : "int ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Boolean:
-                    {
-                        sb.Append("int ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.DateTime:
-                    {
-                        sb.Append("timestamp ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.UniqueIdentifier:
-                    {
-                        sb.Append("uuid ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.VarString:
-                    {
-                        sb.Append($"varchar({column.Length}) ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Text:
-                    {
-                        sb.Append("text ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Blob:
-                    {
-                        sb.Append("bytea ");
-                        break;
-                    }
-            }
-
-
-            switch (column.Default)
-            {
-                case DbSchemaColumnDefault.CurrentDateTime:
-                    {
-                        sb.Append("DEFAULT(CURRENT_TIMESTAMP) ");
-                        break;
-                    }
-                //case DbSchemaColumnDefault.NewUniqueIdentifier:
-                //    {
-                //        sb.Append("DEFAULT(UUID_TO_BIN(UUID(), true)) ");
-                //        break;
-                //    }
-                case DbSchemaColumnDefault.Zero:
-                    {
-                        sb.Append("DEFAULT(0) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.One:
-                    {
-                        sb.Append("DEFAULT(1) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.Two:
-                    {
-                        sb.Append("DEFAULT(2) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.Three:
-                    {
-                        sb.Append("DEFAULT(3) ");
-                        break;
-                    }
-            }
-
-            sb.Append(column.NotNull ? "NOT NULL" : "NULL");
-
-            return sb.ToString();
+            return $"ALTER TABLE \"{schema.ToLower()}\".\"{table.ToLower()}\" ADD \"{column.Name.ToLower()}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)};";
         }
 
         public string GenerateAlterColumnDefault(string schema, string table, DbSchemaTableColumn column)
         {
-            var sb = new StringBuilder();
-            //ALTER TABLE ONLY users ALTER COLUMN lang SET DEFAULT 'en_GB';
-
-            sb.Append($"ALTER TABLE ONLY \"{schema.ToLower()}\".\"{table.ToLower()}\" ALTER COLUMN {column.Name.ToLower()} SET ");
-
-            
-            switch (column.Default)
+            if(column.Default == DbSchemaColumnDefault.None)
             {
-                case DbSchemaColumnDefault.None:
-                    {
-                        sb.Append("DEFAULT(NULL) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.CurrentDateTime:
-                    {
-                        sb.Append("DEFAULT(CURRENT_TIMESTAMP) ");
-                        break;
-                    }
-                //case DbSchemaColumnDefault.NewUniqueIdentifier:
-                //    {
-                //        sb.Append("DEFAULT(UUID_TO_BIN(UUID(), true)) ");
-                //        break;
-                //    }
-                case DbSchemaColumnDefault.Zero:
-                    {
-                        sb.Append("DEFAULT(0) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.One:
-                    {
-                        sb.Append("DEFAULT(1) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.Two:
-                    {
-                        sb.Append("DEFAULT(2) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.Three:
-                    {
-                        sb.Append("DEFAULT(3) ");
-                        break;
-                    }
+                return $"ALTER TABLE ONLY \"{schema.ToLower()}\".\"{table.ToLower()}\" ALTER COLUMN \"{column.Name.ToLower()}\" DROP DEFAULT";
             }
-            
-            return sb.ToString();
+
+            return $"ALTER TABLE ONLY \"{schema.ToLower()}\".\"{table.ToLower()}\" ALTER COLUMN \"{column.Name.ToLower()}\" SET {ToSqlDefault(column)};";
         }
 
         public string GenerateAlterIndex(string schema, string table, DbSchemaTableColumnIndex index, string name)
@@ -327,97 +200,14 @@ namespace Simego.DataSync.Providers.DbSchema
 
             sb.Append($"ALTER TABLE ONLY \"{schema.ToLower()}\".\"{table.ToLower()}\" ");
 
-            sb.Append($"ALTER COLUMN {column.Name.ToLower()} TYPE ");
-            switch (column.Type)
-            {
-                case DbSchemaColumnDataType.BigInteger:
-                    {
-                        sb.Append(column.Identity ? "bigserial " : "bigint ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Integer:
-                    {
-                        sb.Append(column.Identity ? "serial " : "int ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Boolean:
-                    {
-                        sb.Append("int ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.DateTime:
-                    {
-                        sb.Append("timestamp ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.UniqueIdentifier:
-                    {
-                        sb.Append("uuid ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.VarString:
-                    {
-                        sb.Append($"varchar({column.Length}) ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Text:
-                    {
-                        sb.Append("text ");
-                        break;
-                    }
-                case DbSchemaColumnDataType.Blob:
-                    {
-                        sb.Append("bytea ");
-                        break;
-                    }
-            }
-
-            sb.Append(", ");
-            sb.Append($"ALTER COLUMN {column.Name.ToLower()} ");
-
-            switch (column.Default)
-            {
-                case DbSchemaColumnDefault.None:
-                    {
-                        sb.Append("DROP DEFAULT ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.CurrentDateTime:
-                    {
-                        sb.Append("SET DEFAULT(CURRENT_TIMESTAMP) ");
-                        break;
-                    }
-                //case DbSchemaColumnDefault.NewUniqueIdentifier:
-                //    {
-                //        sb.Append("DEFAULT(UUID_TO_BIN(UUID(), true)) ");
-                //        break;
-                //    }
-                case DbSchemaColumnDefault.Zero:
-                    {
-                        sb.Append("SET DEFAULT(0) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.One:
-                    {
-                        sb.Append("SET DEFAULT(1) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.Two:
-                    {
-                        sb.Append("SET DEFAULT(2) ");
-                        break;
-                    }
-                case DbSchemaColumnDefault.Three:
-                    {
-                        sb.Append("SET DEFAULT(3) ");
-                        break;
-                    }
-            }
-
-            sb.Append(", ");
-            sb.Append($"ALTER COLUMN {column.Name.ToLower()} ");
-            sb.Append(column.NotNull ? "SET NOT NULL" : "DROP NOT NULL");
-
+            sb.AppendLine($"\tALTER COLUMN \"{column.Name.ToLower()}\" TYPE {ToSqlType(column)},");
+            
+            var defaultOption = column.Default == DbSchemaColumnDefault.None ? "DROP DEFAULT" : $"SET {ToSqlDefault(column)}";
+            sb.AppendLine($"\tALTER COLUMN \"{column.Name.ToLower()}\" {defaultOption},");
+            
+            var nullOption = column.NotNull ? "SET NOT NULL" : "DROP NOT NULL";
+            sb.AppendLine($"\tALTER COLUMN \"{column.Name.ToLower()}\" {nullOption}");
+            
             return sb.ToString();
         }
 
@@ -468,6 +258,69 @@ namespace Simego.DataSync.Providers.DbSchema
             return $"ALTER TABLE \"{schema.ToLower()}\".\"{table.ToLower()}\" DROP COLUMN \"{column.Name}\"";
         }
 
+        public string GenerateCreateTableObjects(DbSchemaTable table)
+        {
+            var sb = new StringBuilder();
+            if (table.Columns.Count > 0)
+            {
+                // Create Columns
+
+                // Check if the Table already exists and if not create the table
+                using (var connection = GetConnection())
+                {
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandType = CommandType.Text;
+                        cmd.CommandText = DbInformationSchemaConstants.Q_TABLE_COUNT;
+
+                        cmd.Parameters.Add(CreateParameter(0, table.Schema.ToLower()));
+                        cmd.Parameters.Add(CreateParameter(1, table.Name.ToLower()));
+
+                        var tableCount = DataSchemaTypeConverter.ConvertTo<int>(cmd.ExecuteScalar());
+
+                        if (tableCount == 0)
+                        {
+                            //We need to create the Table
+                            sb.AppendLine($"CREATE TABLE \"{table.Schema.ToLower()}\".\"{table.Name.ToLower()}\" (");
+
+                            for (int i = 0; i < table.Columns.Count; i++)
+                            {
+                                DbSchemaTableColumn column = table.Columns[i];
+                                if (i > 0) sb.AppendLine(",");
+                                sb.Append($"\t\"{column.Name.ToLower()}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}");                                
+                            }
+                            sb.AppendLine(");");
+                        }
+                        else
+                        {
+                            //We need to Add Columns to the Table
+                            sb.AppendLine($"ALTER TABLE \"{table.Schema.ToLower()}\".\"{table.Name.ToLower()}\" ");
+
+                            for (int i = 0; i < table.Columns.Count; i++)
+                            {
+                                DbSchemaTableColumn column = table.Columns[i];
+                                if (i > 0) sb.AppendLine(",");
+                                sb.Append($"\tADD COLUMN \"{column.Name.ToLower()}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}");
+                            }
+                            sb.AppendLine(";");
+                        }
+                    }
+                }
+
+            }
+            if (table.Indexes.Count > 0)
+            {
+                // Add Indexes
+                foreach (var index in table.Indexes)
+                {
+                    //Add to the script the Create Index
+                    sb.AppendLine(GenerateCreateIndex(table.Schema, table.Name, index));
+                }
+            }
+
+            return sb.ToString();
+        }
+
         public string GenerateDeleteTableObjects(DbSchemaTable table)
         {
             var sb = new StringBuilder();
@@ -481,7 +334,7 @@ namespace Simego.DataSync.Providers.DbSchema
                     using (var cmd = connection.CreateCommand())
                     {
                         cmd.CommandType = CommandType.Text;
-                        cmd.CommandText = "select count(*) from information_schema.columns WHERE table_schema = @p0 AND table_name = @p1";
+                        cmd.CommandText = DbInformationSchemaConstants.Q_COLUMNS_COUNT;
 
                         cmd.Parameters.Add(CreateParameter(0, table.Schema.ToLower()));
                         cmd.Parameters.Add(CreateParameter(1, table.Name.ToLower()));
@@ -525,7 +378,7 @@ namespace Simego.DataSync.Providers.DbSchema
 
         private DbSchemaColumnDefault ToColumnDefault(DbDataReader reader)
         {
-            var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader["COLUMN_DEFAULT"]);
+            var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_DEFAULT]);
             if (!string.IsNullOrEmpty(defaultString))
             {
                 if (defaultString.Equals("CURRENT_TIMESTAMP", StringComparison.OrdinalIgnoreCase))
@@ -551,9 +404,22 @@ namespace Simego.DataSync.Providers.DbSchema
             }
             return DbSchemaColumnDefault.None;
         }
+
+        private bool ToColumnIdentity(DbDataReader reader)
+        {
+            var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_DEFAULT]);
+            if (!string.IsNullOrEmpty(defaultString))
+            {
+                if (defaultString.StartsWith("nextval(", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }                
+            }
+            return false;
+        }
         private DbSchemaColumnDataType ToDataType(DbDataReader reader)
         {
-            var dataTypeString = DataSchemaTypeConverter.ConvertTo<string>(reader["DATA_TYPE"]);
+            var dataTypeString = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_DATA_TYPE]);
             switch (dataTypeString)
             {
                 case "bigint": return DbSchemaColumnDataType.BigInteger;
@@ -588,5 +454,38 @@ namespace Simego.DataSync.Providers.DbSchema
             p.Value = value;
             return p;
         }
+
+        private string ToSqlType(DbSchemaTableColumn column)
+        {
+            switch (column.Type)
+            {
+                case DbSchemaColumnDataType.BigInteger: return column.Identity ? "bigserial" : "bigint";
+                case DbSchemaColumnDataType.Integer: return column.Identity ? "serial" : "int";
+                case DbSchemaColumnDataType.Boolean: return "int";
+                case DbSchemaColumnDataType.DateTime: return "timestamp";
+                case DbSchemaColumnDataType.UniqueIdentifier: return "uuid";
+                case DbSchemaColumnDataType.VarString: return $"varchar({column.Length})";
+                case DbSchemaColumnDataType.Text: return "text";
+                case DbSchemaColumnDataType.Blob: return "bytea";
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(column), $"Invalid Sql Type: {column}");
+        }
+
+        private string ToSqlDefault(DbSchemaTableColumn column)
+        {
+            switch (column.Default)
+            {
+                case DbSchemaColumnDefault.CurrentDateTime: return "DEFAULT(CURRENT_TIMESTAMP)";
+                //case DbSchemaColumnDefault.NewUniqueIdentifier: return "DEFAULT(UUID_TO_BIN(UUID(), true))";
+                case DbSchemaColumnDefault.Zero: return "DEFAULT(0)";
+                case DbSchemaColumnDefault.One: return "DEFAULT(1)";
+                case DbSchemaColumnDefault.Two: return "DEFAULT(2)";
+                case DbSchemaColumnDefault.Three: return "DEFAULT(3)";
+                default: return string.Empty;
+            }
+        }
+
+        private string ToSqlNotNull(DbSchemaTableColumn column) => column.NotNull ? "NOT NULL" : "NULL";
     }
 }

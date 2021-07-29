@@ -33,7 +33,7 @@ namespace Simego.DataSync.Providers.DbSchema
 
         public DbSchemaDatasourceReader()
         {
-            DbProvider = new PostgreSqlDbProvider(this);
+            DbProvider = new SqlClientDbProvider(this);
         }
 
         public override DataTableStore GetDataTable(DataTableStore dt)
@@ -69,6 +69,7 @@ namespace Simego.DataSync.Providers.DbSchema
                                             case "Length": return column.Length;
                                             case "NotNull": return column.NotNull;
                                             case "ColumnDefault": return column.Default;
+                                            case "IsIdentity": return column.Identity;
                                             case "IsPrimaryKey": return table.Indexes.Any(p => p.PrimaryKey && p.Columns.Contains(column.Name));
                                             case "IsClustered": return table.Indexes.Any(p => p.Clustered && p.Columns.Contains(column.Name));
                                             case "IsUnique": return table.Indexes.Any(p => p.Unique && p.Columns.Contains(column.Name));
@@ -88,6 +89,7 @@ namespace Simego.DataSync.Providers.DbSchema
                                             case "ObjectType": return index.Type == DbSchemaTableColumnIndexType.Index ? "TABLE_INDEX" : "TABLE_CONSTRAINT";
                                             case "TableName": return table.Name;
                                             case "Name": return index.GetName(hashHelper, table);
+                                            case "IsIdentity": return false;
                                             case "IsPrimaryKey": return index.PrimaryKey;
                                             case "IsClustered": return index.Clustered;
                                             case "IsUnique": return index.Unique;

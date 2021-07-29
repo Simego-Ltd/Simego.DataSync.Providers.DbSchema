@@ -22,74 +22,55 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 int currentItem = 0;
 
+                var tables = new List<DbSchemaTable>();
+
+                // Convert source data to a Table List.
                 foreach (var item in items)
+                {
+                    var targetItem = AddItemToDictionary(Mapping, item);
+
+                    var schema = DataSchemaTypeConverter.ConvertTo<string>(targetItem["Schema"]);
+                    var name = DataSchemaTypeConverter.ConvertTo<string>(targetItem["TableName"]);
+                    var objectType = DataSchemaTypeConverter.ConvertTo<string>(targetItem["ObjectType"]);
+
+                    var table = GetTable(tables, schema, name);
+                    if (table != null)
+                    {
+                        // TABLE_COLUMN
+                        if (objectType == "TABLE_COLUMN")
+                        {
+                            table.Columns.Add(ToTableColumn(targetItem));
+                        }
+                        // TABLE_INDEX
+                        if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
+                        {
+                            table.Indexes.Add(ToTableIndex(targetItem, null));
+                        }
+                    }
+                }
+
+                // Process the Tables
+                foreach (var item in tables)
                 {
                     if (!status.ContinueProcessing)
                         break;
 
                     try
                     {
-                        var itemInvariant = new DataCompareItemInvariant(item);
+                        var sql = DbProvider.GenerateCreateTableObjects(item);
 
-                        //Call the Automation BeforeAddItem (Optional only required if your supporting Automation Item Events)
-                        Automation?.BeforeAddItem(this, itemInvariant, null);
+                        if (DataSourceReader.OutputSqlTrace)
+                            status.Message(sql);
 
-                        if (itemInvariant.Sync)
+                        if (!DataSourceReader.DoNotExecute)
                         {
-                            #region Add Item
-                            //Get the Target Item Data
-                            Dictionary<string, object> targetItem = AddItemToDictionary(Mapping, itemInvariant);
-
-                            var schema = DataSchemaTypeConverter.ConvertTo<string>(targetItem["Schema"]);
-                            var table = DataSchemaTypeConverter.ConvertTo<string>(targetItem["TableName"]);                           
-                            var objectType = DataSchemaTypeConverter.ConvertTo<string>(targetItem["ObjectType"]);
-
-                            // TABLE_COLUMN
-                            if (objectType == "TABLE_COLUMN")
+                            using (var cmd = Connection.CreateCommand())
                             {
-                                var column = ToTableColumn(targetItem);
-                                var sql = DbProvider.GenerateAddTableColumn(schema, table, column);
-
-                                if(DataSourceReader.OutputSqlTrace)
-                                    status.Message(sql);
-
-                                if (!DataSourceReader.DoNotExecute)
-                                {
-                                    using (var cmd = Connection.CreateCommand())
-                                    {
-                                        cmd.CommandType = System.Data.CommandType.Text;
-                                        cmd.CommandText = sql;
-                                        cmd.ExecuteNonQuery();
-                                    }
-                                }
+                                cmd.CommandType = System.Data.CommandType.Text;
+                                cmd.CommandText = sql;
+                                cmd.ExecuteNonQuery();
                             }
-                            // TABLE_INDEX
-                            if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
-                            {
-                                var index = ToTableIndex(targetItem, null);
-                                var sql = DbProvider.GenerateCreateIndex(schema, table, index);
-
-                                if (DataSourceReader.OutputSqlTrace)
-                                    status.Message(sql);
-
-                                if (!DataSourceReader.DoNotExecute)
-                                {
-                                    using (var cmd = Connection.CreateCommand())
-                                    {
-                                        cmd.CommandType = System.Data.CommandType.Text;
-                                        cmd.CommandText = sql;
-                                        cmd.ExecuteNonQuery();
-                                    }
-                                }
-                            }
-                            //Call the Automation AfterAddItem (pass the created item identifier if possible)
-                            Automation?.AfterAddItem(this, itemInvariant, null);
                         }
-
-                        #endregion
-
-                        ClearSyncStatus(item); //Clear the Sync Flag on Processed Rows
-
                     }
                     catch (SystemException e)
                     {
@@ -97,7 +78,7 @@ namespace Simego.DataSync.Providers.DbSchema
                     }
                     finally
                     {
-                        status.Progress(items.Count, ++currentItem); //Update the Sync Progress
+                        status.Progress(tables.Count, ++currentItem); //Update the Sync Progress
                     }
                 }
             }
@@ -116,71 +97,23 @@ namespace Simego.DataSync.Providers.DbSchema
 
                     try
                     {
-                        var itemInvariant = new DataCompareItemInvariant(item);
-                        var itemIdentifier = itemInvariant.GetTargetIdentifier<string>();
+                        //Get the Target Item Data
+                        Dictionary<string, object> targetItem = AddItemToDictionary(Mapping, item);
+                        Dictionary<string, object> targetChanges = UpdateItemToDictionary(Mapping, item);
 
-                        //Call the Automation BeforeUpdateItem (Optional only required if your supporting Automation Item Events)
-                        Automation?.BeforeUpdateItem(this, itemInvariant, itemIdentifier);
+                        var schema = DataSchemaTypeConverter.ConvertTo<string>(targetItem["Schema"]);
+                        var table = DataSchemaTypeConverter.ConvertTo<string>(targetItem["TableName"]);
+                        var objectType = DataSchemaTypeConverter.ConvertTo<string>(targetItem["ObjectType"]);
 
-                        if (itemInvariant.Sync)
+                        // TABLE_COLUMN
+                        if (objectType == "TABLE_COLUMN")
                         {
-                            #region Update Item
-                            
-                            //Get the Target Item Data
-                            Dictionary<string, object> targetItem = AddItemToDictionary(Mapping, itemInvariant);
-                            Dictionary<string, object> targetChanges = UpdateItemToDictionary(Mapping, itemInvariant);
+                            var column = ToTableColumn(targetItem);
 
-                            var schema = DataSchemaTypeConverter.ConvertTo<string>(targetItem["Schema"]);
-                            var table = DataSchemaTypeConverter.ConvertTo<string>(targetItem["TableName"]);                           
-                            var objectType = DataSchemaTypeConverter.ConvertTo<string>(targetItem["ObjectType"]);
-
-                            // TABLE_COLUMN
-                            if (objectType == "TABLE_COLUMN")
+                            if (targetChanges.ContainsKey("Length") || targetChanges.ContainsKey("NotNull"))
                             {
-                                var column = ToTableColumn(targetItem);
+                                var sql = DbProvider.GenerateAlterTableColumn(schema, table, column);
 
-                                //TODO: Write the code to Update the Item in the Target using item_id as the Key to the item.
-                                if (targetChanges.ContainsKey("Length") || targetChanges.ContainsKey("NotNull"))
-                                {
-                                    var sql = DbProvider.GenerateAlterTableColumn(schema, table, column);
-                                    
-                                    if (DataSourceReader.OutputSqlTrace)
-                                        status.Message(sql);
-
-                                    if (!DataSourceReader.DoNotExecute)
-                                    {
-                                        using (var cmd = Connection.CreateCommand())
-                                        {
-                                            cmd.CommandType = System.Data.CommandType.Text;
-                                            cmd.CommandText = sql;
-                                            cmd.ExecuteNonQuery();
-                                        }
-                                    }
-                                }
-                                if (targetChanges.ContainsKey("ColumnDefault"))
-                                {
-                                    var sql = DbProvider.GenerateAlterColumnDefault(schema, table, column);
-                                    
-                                    if (DataSourceReader.OutputSqlTrace)
-                                        status.Message(sql);
-
-                                    if (!DataSourceReader.DoNotExecute)
-                                    {
-                                        using (var cmd = Connection.CreateCommand())
-                                        {
-                                            cmd.CommandType = System.Data.CommandType.Text;
-                                            cmd.CommandText = sql;
-                                            cmd.ExecuteNonQuery();
-                                        }
-                                    }
-                                }
-                            }
-                            // TABLE_INDEX
-                            if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
-                            {
-                                var index = ToTableIndex(targetItem, null);
-                                var sql = DbProvider.GenerateAlterIndex(schema, table, index, itemIdentifier);
-                                
                                 if (DataSourceReader.OutputSqlTrace)
                                     status.Message(sql);
 
@@ -194,15 +127,43 @@ namespace Simego.DataSync.Providers.DbSchema
                                     }
                                 }
                             }
+                            if (targetChanges.ContainsKey("ColumnDefault"))
+                            {
+                                var sql = DbProvider.GenerateAlterColumnDefault(schema, table, column);
 
-                            //Call the Automation AfterUpdateItem 
-                            Automation?.AfterUpdateItem(this, itemInvariant, itemIdentifier);
+                                if (DataSourceReader.OutputSqlTrace)
+                                    status.Message(sql);
 
-
-                            #endregion
+                                if (!DataSourceReader.DoNotExecute)
+                                {
+                                    using (var cmd = Connection.CreateCommand())
+                                    {
+                                        cmd.CommandType = System.Data.CommandType.Text;
+                                        cmd.CommandText = sql;
+                                        cmd.ExecuteNonQuery();
+                                    }
+                                }
+                            }
                         }
+                        // TABLE_INDEX
+                        if (objectType == "TABLE_INDEX" || objectType == "TABLE_CONSTRAINT")
+                        {
+                            var index = ToTableIndex(targetItem, null);
+                            var sql = DbProvider.GenerateAlterIndex(schema, table, index, item.GetTargetIdentifier<string>());
 
-                        ClearSyncStatus(item); //Clear the Sync Flag on Processed Rows
+                            if (DataSourceReader.OutputSqlTrace)
+                                status.Message(sql);
+
+                            if (!DataSourceReader.DoNotExecute)
+                            {
+                                using (var cmd = Connection.CreateCommand())
+                                {
+                                    cmd.CommandType = System.Data.CommandType.Text;
+                                    cmd.CommandText = sql;
+                                    cmd.ExecuteNonQuery();
+                                }
+                            }
+                        }
                     }
                     catch (SystemException e)
                     {
@@ -389,12 +350,12 @@ namespace Simego.DataSync.Providers.DbSchema
                         }
                     case "Columns":
                         {
-                            index.Columns = DataSchemaTypeConverter.ConvertTo<string[]>(targetItem[key]);
+                            index.Columns = new List<string>(DataSchemaTypeConverter.ConvertTo<string[]>(targetItem[key]) ?? Enumerable.Empty<string>());
                             break;
                         }
                     case "Include":
                         {
-                            index.Include = DataSchemaTypeConverter.ConvertTo<string[]>(targetItem[key]);
+                            index.Include = new List<string>(DataSchemaTypeConverter.ConvertTo<string[]>(targetItem[key]) ?? Enumerable.Empty<string>());
                             break;
                         }
                     case "IsPrimaryKey":
