@@ -14,6 +14,10 @@ namespace Simego.DataSync.Providers.DbSchema.Models
         public bool PrimaryKey { get; set; }
         public bool NotNull { get; set; }
         public int Length { get; set; } = -1;
+        public int Precision { get; set; } = 0;
+        public int Scale { get; set; } = 0;
         public DbSchemaColumnDefault Default { get; set; }
+
+        public bool IsPrecisionScaleType => Type == DbSchemaColumnDataType.Decimal;
     }
 }

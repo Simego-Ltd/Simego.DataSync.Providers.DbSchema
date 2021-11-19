@@ -4,6 +4,7 @@
     {
         Integer,
         BigInteger,
+        Decimal,
         Boolean,
         DateTime,
         VarString,

@@ -70,6 +70,8 @@ namespace Simego.DataSync.Providers.DbSchema
                                             case "Name": return column.Name;
                                             case "DataType": return column.Type;
                                             case "Length": return column.Length;
+                                            case "Precision": return column.IsPrecisionScaleType ? column.Precision : 0;
+                                            case "Scale": return column.IsPrecisionScaleType ? column.Scale : 0;
                                             case "NotNull": return column.NotNull;
                                             case "ColumnDefault": return column.Default;
                                             case "IsIdentity": return column.Identity;
@@ -99,6 +101,8 @@ namespace Simego.DataSync.Providers.DbSchema
                                             case "Columns": return index.Columns.ToArray();
                                             case "Include": return index.Include.ToArray();
                                             case "Length": return 0;
+                                            case "Precision": return 0;
+                                            case "Scale": return 0;
                                             case "NotNull": return false;
                                             default: return null;
                                         }

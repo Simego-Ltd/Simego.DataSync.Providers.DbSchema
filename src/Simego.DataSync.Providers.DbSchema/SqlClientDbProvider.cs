@@ -92,6 +92,8 @@ namespace Simego.DataSync.Providers.DbSchema
                                 PrimaryKey = false,
                                 Identity = DataSchemaTypeConverter.ConvertTo<bool>(reader[DbInformationSchemaConstants.C_IS_IDENTITY]),
                                 Length = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_CHARACTER_LENGTH]) ?? -1,
+                                Precision = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_PRECISION]) ?? 0,
+                                Scale = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_SCALE]) ?? 0,
                                 NotNull = !DataSchemaTypeConverter.ConvertTo<bool>(reader[DbInformationSchemaConstants.C_IS_NULLABLE]),
                                 Default = ToColumnDefault(reader)
                             });
@@ -485,6 +487,9 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 case "bigint": return DbSchemaColumnDataType.BigInteger;
                 case "int": return DbSchemaColumnDataType.Integer;
+                case "float": 
+                case "numeric": 
+                case "decimal": return DbSchemaColumnDataType.Decimal;
                 case "uniqueidentifier": return DbSchemaColumnDataType.UniqueIdentifier;
                 case "bit": return DbSchemaColumnDataType.Boolean;
                 case "datetime": return DbSchemaColumnDataType.DateTime;
@@ -521,6 +526,7 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 case DbSchemaColumnDataType.BigInteger: return "bigint";
                 case DbSchemaColumnDataType.Integer: return "int";
+                case DbSchemaColumnDataType.Decimal: return $"decimal({column.Precision}, {column.Scale})";
                 case DbSchemaColumnDataType.Boolean: return "bit";
                 case DbSchemaColumnDataType.DateTime: return "datetime";
                 case DbSchemaColumnDataType.UniqueIdentifier: return "uniqueidentifier";

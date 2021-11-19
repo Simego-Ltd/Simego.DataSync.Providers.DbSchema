@@ -69,6 +69,8 @@ namespace Simego.DataSync.Providers.DbSchema
                                 PrimaryKey = false,
                                 Identity = ToColumnIdentity(reader),
                                 Length = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_CHARACTER_LENGTH]) ?? -1,
+                                Precision = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_PRECISION]) ?? 0,
+                                Scale = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_SCALE]) ?? 0,
                                 NotNull = !DataSchemaTypeConverter.ConvertTo<bool>(reader[DbInformationSchemaConstants.C_IS_NULLABLE]),
                                 Default = ToColumnDefault(reader)
                             });
@@ -427,6 +429,9 @@ namespace Simego.DataSync.Providers.DbSchema
                 case "bigint": return DbSchemaColumnDataType.BigInteger;
                 case "int":
                 case "integer": return DbSchemaColumnDataType.Integer;
+                case "float": 
+                case "numeric": 
+                case "decimal": return DbSchemaColumnDataType.Decimal;
                 case "uuid": return DbSchemaColumnDataType.UniqueIdentifier;
                 case "bit": return DbSchemaColumnDataType.Boolean;
                 case "timestamp":
@@ -463,6 +468,7 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 case DbSchemaColumnDataType.BigInteger: return column.Identity ? "bigserial" : "bigint";
                 case DbSchemaColumnDataType.Integer: return column.Identity ? "serial" : "int";
+                case DbSchemaColumnDataType.Decimal: return $"decimal({column.Precision}, {column.Scale})";
                 case DbSchemaColumnDataType.Boolean: return "int";
                 case DbSchemaColumnDataType.DateTime: return "timestamp";
                 case DbSchemaColumnDataType.UniqueIdentifier: return "uuid";

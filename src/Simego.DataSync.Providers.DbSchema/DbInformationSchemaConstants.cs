@@ -15,6 +15,8 @@
         public const string C_IS_NULLABLE = "is_nullable";
         public const string C_CHARACTER_LENGTH = "character_maximum_length";
         public const string C_IS_IDENTITY = "is_identity";
+        public const string C_PRECISION = "numeric_precision";
+        public const string C_SCALE = "numeric_scale";
 
     }
 }

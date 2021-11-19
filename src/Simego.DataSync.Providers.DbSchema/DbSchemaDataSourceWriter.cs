@@ -298,6 +298,16 @@ namespace Simego.DataSync.Providers.DbSchema
                             column.Length = DataSchemaTypeConverter.ConvertTo<int>(targetItem[key]);
                             break;
                         }
+                    case "Precision":
+                        {
+                            column.Precision = DataSchemaTypeConverter.ConvertTo<int>(targetItem[key]);
+                            break;
+                        }
+                    case "Scale":
+                        {
+                            column.Scale = DataSchemaTypeConverter.ConvertTo<int>(targetItem[key]);
+                            break;
+                        }
                     case "NotNull":
                         {
                             column.NotNull = DataSchemaTypeConverter.ConvertTo<bool>(targetItem[key]);
