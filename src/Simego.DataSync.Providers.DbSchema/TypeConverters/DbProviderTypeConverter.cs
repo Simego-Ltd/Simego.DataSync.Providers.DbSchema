@@ -19,7 +19,7 @@ namespace Simego.DataSync.Providers.DbSchema.TypeConverters
 
         public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext context)
         {
-            return new StandardValuesCollection(new [] { "SqlClient", "Npgsql" });
+            return new StandardValuesCollection(new [] { "SqlClient", "Npgsql", "MySql" });
         }
     }
 }

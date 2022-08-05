@@ -110,7 +110,7 @@ namespace Simego.DataSync.Providers.DbSchema
                         {
                             var column = ToTableColumn(targetItem);
 
-                            if (targetChanges.ContainsKey("Length") || targetChanges.ContainsKey("NotNull"))
+                            if (targetChanges.ContainsKey("DataType") || targetChanges.ContainsKey("Length") || targetChanges.ContainsKey("NotNull"))
                             {
                                 var sql = DbProvider.GenerateAlterTableColumn(schema, table, column);
 
@@ -127,7 +127,7 @@ namespace Simego.DataSync.Providers.DbSchema
                                     }
                                 }
                             }
-                            if (targetChanges.ContainsKey("ColumnDefault"))
+                            else if (targetChanges.ContainsKey("ColumnDefault"))
                             {
                                 var sql = DbProvider.GenerateAlterColumnDefault(schema, table, column);
 

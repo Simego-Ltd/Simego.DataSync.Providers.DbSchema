@@ -2,8 +2,10 @@
 {
     public enum DbSchemaColumnDataType
     {
+        TinyInt,
         Integer,
         BigInteger,
+        Double,
         Decimal,
         Boolean,
         DateTime,

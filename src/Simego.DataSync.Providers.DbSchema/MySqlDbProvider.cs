@@ -4,19 +4,20 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 
 namespace Simego.DataSync.Providers.DbSchema
 {
-    class PostgreSqlDbProvider : IDbSchemaProvider
+    class MySqlDbProvider : IDbSchemaProvider
     {
         private DbSchemaDatasourceReader Reader { get; set; }
-        private Lazy<DbProviderFactory> Factory = new Lazy<DbProviderFactory>(() => Npgsql.NpgsqlFactory.Instance);
+        private Lazy<DbProviderFactory> Factory = new Lazy<DbProviderFactory>(() => MySql.Data.MySqlClient.MySqlClientFactory.Instance);
 
-        public string Name => "Npgsql";
+        public string Name => "MySql";
 
-        public PostgreSqlDbProvider(DbSchemaDatasourceReader reader)
+        public MySqlDbProvider(DbSchemaDatasourceReader reader)
         {
             Reader = reader ?? throw new ArgumentNullException(nameof(reader));
         }
@@ -44,137 +45,135 @@ namespace Simego.DataSync.Providers.DbSchema
                     cmd.CommandText = DbInformationSchemaConstants.Q_COLUMNS;
                     if (!string.IsNullOrEmpty(Reader.CommandWhere))
                     {
-                        cmd.CommandText = $"{cmd.CommandText} AND ({Reader.CommandWhere})";
+                        cmd.CommandText = $"SELECT * FROM ({cmd.CommandText}) T1 WHERE ({Reader.CommandWhere})";
                     }
 
-                    var reader = cmd.ExecuteReader(CommandBehavior.CloseConnection);
-
-                    while (reader.Read())
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        var schemaName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_SCHEMA]);
-                        var tableName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_NAME]);
 
-                        var key = $"{schemaName}.{tableName}";
-
-                        if (!tables.ContainsKey(key))
-                            tables[key] = new DbSchemaTable { Schema = schemaName, Name = tableName };
-
-                        var t = tables[key];
-                        
-                        t.Columns.Add(
-                            new DbSchemaTableColumn
-                            {
-                                Name = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_NAME]),
-                                Type = ToDataType(reader),
-                                PrimaryKey = false,
-                                Identity = ToColumnIdentity(reader),
-                                Length = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_CHARACTER_LENGTH]) ?? -1,
-                                Precision = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_PRECISION]) ?? 0,
-                                Scale = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_SCALE]) ?? 0,
-                                NotNull = !DataSchemaTypeConverter.ConvertTo<bool>(reader[DbInformationSchemaConstants.C_IS_NULLABLE]),
-                                Default = ToColumnDefault(reader)
-                            });
-                    }
-                }
-            }
-        }
-    
-        public void GetIndexes(IDictionary<string, DbSchemaTable> tables)
-        {            
-            var sb = new StringBuilder();
-
-            sb.AppendLine("SELECT s.*, t.*, c.constraint_type FROM pg_indexes s ");
-            sb.AppendLine("INNER JOIN (");
-            sb.AppendLine("SELECT  i.relname AS index_name, indisunique AS is_unique, indisprimary AS is_primary, indisclustered AS is_clustered ");
-            sb.AppendLine("FROM pg_class c JOIN pg_index x ON c.oid = x.indrelid JOIN pg_class i ON i.oid = x.indexrelid ");
-            sb.AppendLine("LEFT JOIN pg_namespace n ON n.oid = c.relnamespace ");
-            sb.AppendLine("WHERE c.relkind = ANY(ARRAY['r', 't']) AND i.relname NOT LIKE 'pg%'");
-            sb.AppendLine(") t ON s.indexname = t.index_name ");
-            sb.AppendLine("LEFT JOIN information_schema.table_constraints c ON c.table_schema = s.schemaname AND c.constraint_name = t.index_name");
-            sb.AppendLine("WHERE t.index_name IS NOT null");
-
-            using (var connection = GetConnection())
-            {                
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandType = CommandType.Text;
-                    cmd.CommandText = sb.ToString();
-
-                    var reader = cmd.ExecuteReader(CommandBehavior.CloseConnection);
-
-                    while (reader.Read())
-                    {
-                        var schemaName = DataSchemaTypeConverter.ConvertTo<string>(reader["schemaname"]);
-                        var tableName = DataSchemaTypeConverter.ConvertTo<string>(reader["tablename"]);
-
-                        var key = $"{schemaName}.{tableName}";
-
-                        if (tables.TryGetValue(key, out DbSchemaTable t))
+                        while (reader.Read())
                         {
-                            var indexName = DataSchemaTypeConverter.ConvertTo<string>(reader["indexname"]);
 
-                            var index =
-                                new DbSchemaTableColumnIndex
+                            var schemaName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_SCHEMA]);
+                            var tableName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_NAME]);
+
+                            var key = $"{schemaName}.{tableName}";
+
+                            if (!tables.ContainsKey(key))
+                                tables[key] = new DbSchemaTable { Schema = schemaName, Name = tableName };
+
+                            var t = tables[key];
+
+                            var dataType = ToDataType(reader);
+
+                            // Length is bigger than an int for longtext.
+                            var length = DataSchemaTypeConverter.ConvertTo<long?>(reader[DbInformationSchemaConstants.C_CHARACTER_LENGTH]) ?? -1;
+                            if (length >= 16777215)
+                                length = -1;
+
+                            // Ensure UniqueIdentifiers are of length -1
+                            if (dataType == DbSchemaColumnDataType.UniqueIdentifier)
+                                length = -1;
+
+                            t.Columns.Add(
+                                new DbSchemaTableColumn
                                 {
-                                    Name = DataSchemaTypeConverter.ConvertTo<string>(indexName),
-                                    PrimaryKey = DataSchemaTypeConverter.ConvertTo<bool>(reader["is_primary"]),
-                                    Unique = DataSchemaTypeConverter.ConvertTo<bool>(reader["is_unique"]),
-                                    Clustered = DataSchemaTypeConverter.ConvertTo<bool>(reader["is_clustered"])
-                                };
-
-                            var constraintType = DataSchemaTypeConverter.ConvertTo<string>(reader["constraint_type"]);
-                            index.Type = constraintType != null ? DbSchemaTableColumnIndexType.Constraint : DbSchemaTableColumnIndexType.Index;                           
-                            index.Columns = ParseIndexDefColumns(DataSchemaTypeConverter.ConvertTo<string>(reader["indexdef"])).ToList();
-
-                            t.Indexes.Add(index);
+                                    Name = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_NAME]),
+                                    Type = dataType,
+                                    PrimaryKey = false,
+                                    Identity = ToColumnIdentity(reader),
+                                    Length = (int)length,
+                                    Precision = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_PRECISION]) ?? 0,
+                                    Scale = DataSchemaTypeConverter.ConvertTo<int?>(reader[DbInformationSchemaConstants.C_SCALE]) ?? 0,
+                                    NotNull = !DataSchemaTypeConverter.ConvertTo<bool>(reader[DbInformationSchemaConstants.C_IS_NULLABLE]),
+                                    Default = ToColumnDefault(reader)
+                                });
                         }
                     }
                 }
             }
         }
 
-        private IEnumerable<string> ParseIndexDefColumns(string value)
+        public void GetIndexes(IDictionary<string, DbSchemaTable> tables)
         {
-            int indexOfStart = value.IndexOf("(");
-            int indexOfEnd = value.IndexOf(")");
-
-            if(indexOfEnd > indexOfStart)
+            using (var connection = GetConnection())
             {
-                var columns = value.Substring(indexOfStart + 1, indexOfEnd - indexOfStart- 1);
-                foreach(var s in columns.Split(','))
+                using (var cmd = connection.CreateCommand())
                 {
-                    yield return s.Trim();
+                    cmd.CommandType = CommandType.Text;
+                    cmd.CommandText = "SELECT * FROM INFORMATION_SCHEMA.STATISTICS";
+                    
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var schemaName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_SCHEMA]);
+                            var tableName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_TABLE_NAME]);
+
+                            var columnName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_NAME]);
+                            var indexName = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_INDEX_NAME]);
+                            var isUnique = !DataSchemaTypeConverter.ConvertTo<bool>(reader["NON_UNIQUE"]);
+                            var isPrimaryKey = string.Equals(indexName, "PRIMARY", StringComparison.OrdinalIgnoreCase);
+                            var nonClustred = string.Equals(indexName, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase);
+
+                            var key = $"{schemaName}.{tableName}";
+
+                            if (tables.TryGetValue(key, out DbSchemaTable t))
+                            {
+                                var existingIndex = t.Indexes.FirstOrDefault(p => p.Name == indexName);
+                                if (existingIndex != null)
+                                {
+                                    existingIndex.Columns.Add(columnName);
+                                }
+                                else
+                                {
+                                    var index = new DbSchemaTableColumnIndex
+                                    {
+                                        Name = indexName,
+                                        PrimaryKey = isPrimaryKey,
+                                        Unique = isUnique,
+                                        Clustered = isPrimaryKey || !nonClustred,
+                                        Type = isPrimaryKey || isUnique || nonClustred ? DbSchemaTableColumnIndexType.Constraint : DbSchemaTableColumnIndexType.Index,
+                                        Columns = new List<string>(new[] { columnName })
+                                    };
+
+                                    t.Indexes.Add(index);
+                                }                                
+                            }
+
+                        }
+                    }
                 }
-            }
-        }
+            }            
+        }        
 
         public string GenerateAddTableColumn(string schema, string table, DbSchemaTableColumn column)
         {
-            return $"ALTER TABLE \"{schema}\".\"{table}\" ADD \"{column.Name}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)};";
+            return $"ALTER TABLE `{schema}`.`{table}` ADD COLUMN `{column.Name}` {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)};";
         }
 
         public string GenerateAlterColumnDefault(string schema, string table, DbSchemaTableColumn column)
         {
-            if(column.Default == DbSchemaColumnDefault.None)
+            if (column.Default == DbSchemaColumnDefault.None)
             {
-                return $"ALTER TABLE ONLY \"{schema}\".\"{table}\" ALTER COLUMN \"{column.Name}\" DROP DEFAULT";
+                return $"ALTER TABLE `{schema}`.`{table}` ALTER COLUMN `{column.Name}` DROP DEFAULT";
             }
 
-            return $"ALTER TABLE ONLY \"{schema}\".\"{table}\" ALTER COLUMN \"{column.Name}\" SET {ToSqlDefault(column)};";
+            return $"ALTER TABLE `{schema}`.`{table}` ALTER COLUMN `{column.Name}` SET {ToSqlDefault(column)};";
         }
 
         public string GenerateAlterIndex(string schema, string table, DbSchemaTableColumnIndex index, string name)
         {
             var sb = new StringBuilder();
-            var columns = string.Join(",", index.Columns.Select(c => $"{c}"));
+            var columns = string.Join(",", index.Columns.Select(c => $"`{c}`"));
 
             //Drop Existing
-            sb.AppendLine($"ALTER TABLE \"{schema}\".\"{table}\" DROP CONSTRAINT IF EXISTS \"{name}\";");
-            sb.AppendLine($"DROP INDEX IF EXISTS \"{schema}\".\"{name}\";");
-            
+            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP CONSTRAINT IF EXISTS `{name}`;");
+            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP INDEX IF EXISTS `{name}`;");
+
             if (index.Type == DbSchemaTableColumnIndexType.Constraint)
             {
-                sb.Append($"ALTER TABLE \"{schema}\".\"{table}\" ADD CONSTRAINT \"{index.Name}\" ");
+                sb.Append($"ALTER TABLE `{schema}`.`{table}` ADD CONSTRAINT `{index.Name}` ");
                 if (index.PrimaryKey)
                 {
                     sb.Append($"PRIMARY KEY ");
@@ -192,7 +191,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 {
                     sb.Append("UNIQUE ");
                 }
-                sb.Append($"INDEX \"{index.Name}\" ON \"{schema}\".\"{table}\" ({columns});");
+                sb.Append($"INDEX `{index.Name}` ON `{schema}`.`{table}` ({columns});");
             }
 
             return sb.ToString();
@@ -202,27 +201,23 @@ namespace Simego.DataSync.Providers.DbSchema
         {
             var sb = new StringBuilder();
 
-            sb.Append($"ALTER TABLE ONLY \"{schema}\".\"{table}\" ");
+            var nullOption = column.NotNull ? "NOT NULL" : "NULL";
+            var defaultOption = column.Default == DbSchemaColumnDefault.None ? "" : $"{ToSqlDefault(column)}";
 
-            sb.AppendLine($"\tALTER COLUMN \"{column.Name}\" TYPE {ToSqlType(column)},");
-            
-            var defaultOption = column.Default == DbSchemaColumnDefault.None ? "DROP DEFAULT" : $"SET {ToSqlDefault(column)}";
-            sb.AppendLine($"\tALTER COLUMN \"{column.Name}\" {defaultOption},");
-            
-            var nullOption = column.NotNull ? "SET NOT NULL" : "DROP NOT NULL";
-            sb.AppendLine($"\tALTER COLUMN \"{column.Name}\" {nullOption}");
-            
+            sb.Append($"ALTER TABLE `{schema}`.`{table}` ");
+            sb.AppendLine($"MODIFY COLUMN `{column.Name}` {ToSqlType(column)} {nullOption} {defaultOption}");
+
             return sb.ToString();
         }
 
         public string GenerateCreateIndex(string schema, string table, DbSchemaTableColumnIndex index)
         {
             var sb = new StringBuilder();
-            var columns = string.Join(",", index.Columns.Select(c => $"\"{c}\""));
-            
+            var columns = string.Join(",", index.Columns.Select(c => $"`{c}`"));
+
             if (index.Type == DbSchemaTableColumnIndexType.Constraint)
             {
-                sb.Append($"ALTER TABLE {CombineParts(schema, table)} ADD CONSTRAINT \"{index.Name}\" ");
+                sb.Append($"ALTER TABLE {CombineParts(schema, table)} ADD CONSTRAINT `{index.Name}` ");
                 if (index.PrimaryKey)
                 {
                     sb.Append($"PRIMARY KEY ");
@@ -231,7 +226,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 {
                     sb.Append("UNIQUE ");
                 }
-                sb.Append($"({columns})");
+                sb.Append($"({columns});");
             }
             else
             {
@@ -240,7 +235,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 {
                     sb.Append("UNIQUE ");
                 }
-                sb.Append($"INDEX \"{index.Name}\" ON {CombineParts(schema, table)} ({columns}) ");                
+                sb.Append($"INDEX `{index.Name}` ON {CombineParts(schema, table)} ({columns});");
             }
 
             return sb.ToString();
@@ -251,15 +246,15 @@ namespace Simego.DataSync.Providers.DbSchema
             var sb = new StringBuilder();
 
             //Drop Existing
-            sb.AppendLine($"ALTER TABLE \"{schema}\".\"{table}\" DROP CONSTRAINT IF EXISTS \"{name}\";");
-            sb.AppendLine($"DROP INDEX IF EXISTS \"{schema}\".\"{name}\";");
+            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP CONSTRAINT IF EXISTS `{name}`;");
+            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP INDEX IF EXISTS `{name}`;");
 
             return sb.ToString();
         }
 
         public string GenerateDropTableColumn(string schema, string table, DbSchemaTableColumn column)
         {
-            return $"ALTER TABLE \"{schema}\".\"{table}\" DROP COLUMN \"{column.Name}\"";
+            return $"ALTER TABLE `{schema}`.`{table}` DROP COLUMN `{column.Name}`";
         }
 
         public string GenerateCreateTableObjects(DbSchemaTable table)
@@ -285,26 +280,26 @@ namespace Simego.DataSync.Providers.DbSchema
                         if (tableCount == 0)
                         {
                             //We need to create the Table
-                            sb.AppendLine($"CREATE TABLE \"{table.Schema}\".\"{table.Name}\" (");
+                            sb.AppendLine($"CREATE TABLE `{table.Schema}`.`{table.Name}` (");
 
                             for (int i = 0; i < table.Columns.Count; i++)
                             {
                                 DbSchemaTableColumn column = table.Columns[i];
                                 if (i > 0) sb.AppendLine(",");
-                                sb.Append($"\t\"{column.Name}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}");                                
+                                sb.Append($"\t`{column.Name}` {ToSqlType(column)} {ToSqlNotNull(column)} {ToAutoIncrement(column)} {ToSqlDefault(column)}");
                             }
                             sb.AppendLine(");");
                         }
                         else
                         {
                             //We need to Add Columns to the Table
-                            sb.AppendLine($"ALTER TABLE \"{table.Schema}\".\"{table.Name}\" ");
+                            sb.AppendLine($"ALTER TABLE `{table.Schema}`.`{table.Name}` ");
 
                             for (int i = 0; i < table.Columns.Count; i++)
                             {
                                 DbSchemaTableColumn column = table.Columns[i];
                                 if (i > 0) sb.AppendLine(",");
-                                sb.Append($"\tADD COLUMN \"{column.Name}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}");
+                                sb.Append($"\tADD COLUMN `{column.Name}` {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}");
                             }
                             sb.AppendLine(";");
                         }
@@ -317,6 +312,10 @@ namespace Simego.DataSync.Providers.DbSchema
                 // Add Indexes
                 foreach (var index in table.Indexes)
                 {
+                    // Do not add Primary Key index when table has identity.
+                    if (table.Columns.Any(p => p.Identity) && index.PrimaryKey)
+                        continue;
+
                     //Add to the script the Create Index
                     sb.AppendLine(GenerateCreateIndex(table.Schema, table.Name, index));
                 }
@@ -337,7 +336,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 {
                     DbSchemaTableColumn column = table.Columns[i];
                     if (i > 0) sb.AppendLine(",");
-                    var col = $"\"{column.Name}\" {ToSqlType(column)} {ToSqlNotNull(column)} {ToSqlDefault(column)}".Trim();
+                    var col = $"`{column.Name}` {ToSqlType(column)} {ToSqlNotNull(column)} {ToAutoIncrement(column)} {ToSqlDefault(column)}".Trim();
                     sb.Append($"\t{col}");
                 }
                 sb.AppendLine();
@@ -348,6 +347,10 @@ namespace Simego.DataSync.Providers.DbSchema
                     // Add Indexes
                     foreach (var index in table.Indexes)
                     {
+                        // Do not add Primary Key index when table has identity.
+                        if (table.Columns.Any(p => p.Identity) && index.PrimaryKey)
+                            continue;
+
                         //Add to the script the Create Index
                         sb.AppendLine(GenerateCreateIndex(table.Schema, table.Name, index));
                     }
@@ -376,20 +379,20 @@ namespace Simego.DataSync.Providers.DbSchema
                         cmd.Parameters.Add(CreateParameter(1, table.Name));
 
                         var tableColumnsCount = DataSchemaTypeConverter.ConvertTo<int>(cmd.ExecuteScalar());
-                        
+
                         if (table.Columns.Count == tableColumnsCount)
                         {
                             //We just drop the table and return at this point.
-                            sb.AppendLine($"DROP TABLE \"{table.Schema}\".\"{table.Name}\";");
+                            sb.AppendLine($"DROP TABLE `{table.Schema}`.`{table.Name}`;");
                             return sb.ToString();
                         }
                         else
                         {
-                            sb.AppendLine($"ALTER TABLE \"{table.Schema}\".\"{table.Name}\" ");
+                            sb.AppendLine($"ALTER TABLE `{table.Schema}`.`{table.Name}` ");
                             for (int i = 0; i < table.Columns.Count; i++)
                             {
                                 if (i > 0) sb.AppendLine(",");
-                                sb.Append($"\tDROP COLUMN \"{table.Columns[i].Name}\"");                                                                
+                                sb.Append($"\tDROP COLUMN `{table.Columns[i].Name}`");
                             }
                             sb.Append(";");
                         }
@@ -397,10 +400,10 @@ namespace Simego.DataSync.Providers.DbSchema
                 }
 
             }
-            if(table.Indexes.Count > 0)
+            if (table.Indexes.Count > 0)
             {
                 // Drop Indexes
-                foreach(var index in table.Indexes)
+                foreach (var index in table.Indexes)
                 {
                     //Ignore dropping Primary keys as this just seems wrong.
                     if (index.PrimaryKey) continue;
@@ -417,10 +420,15 @@ namespace Simego.DataSync.Providers.DbSchema
             var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_DEFAULT]);
             if (!string.IsNullOrEmpty(defaultString))
             {
-                if (defaultString.Equals("CURRENT_TIMESTAMP", StringComparison.OrdinalIgnoreCase))
+                if (defaultString.Equals("current_timestamp()", StringComparison.OrdinalIgnoreCase) ||
+                    defaultString.Equals("current_timestamp", StringComparison.OrdinalIgnoreCase))
                 {
                     return DbSchemaColumnDefault.CurrentDateTime;
-                }                
+                }
+                if (defaultString.Equals("uuid()", StringComparison.OrdinalIgnoreCase))
+                {
+                    return DbSchemaColumnDefault.NewUniqueIdentifier;
+                }
                 if (defaultString.Equals("0", StringComparison.OrdinalIgnoreCase))
                 {
                     return DbSchemaColumnDefault.Zero;
@@ -437,50 +445,81 @@ namespace Simego.DataSync.Providers.DbSchema
                 {
                     return DbSchemaColumnDefault.Three;
                 }
+                if (defaultString.Equals("b'0'", StringComparison.OrdinalIgnoreCase))
+                {
+                    return DbSchemaColumnDefault.Zero;
+                }
+                if (defaultString.Equals("b'1'", StringComparison.OrdinalIgnoreCase))
+                {
+                    return DbSchemaColumnDefault.One;
+                }
+                if(int.TryParse(defaultString, ConversionNumberStyles.Integer, CultureInfo.InvariantCulture, out var val))
+                {
+                    switch (val)
+                    {
+                        case 0: return DbSchemaColumnDefault.Zero;
+                        case 1: return DbSchemaColumnDefault.One;
+                        case 2: return DbSchemaColumnDefault.Two;
+                        case 3: return DbSchemaColumnDefault.Three;
+                    }
+                }
             }
             return DbSchemaColumnDefault.None;
         }
 
         private bool ToColumnIdentity(DbDataReader reader)
         {
-            var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_COLUMN_DEFAULT]);
+            var defaultString = DataSchemaTypeConverter.ConvertTo<string>(reader["Extra"]);
             if (!string.IsNullOrEmpty(defaultString))
             {
-                if (defaultString.StartsWith("nextval(", StringComparison.OrdinalIgnoreCase))
+                if (defaultString.StartsWith("auto_increment", StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
-                }                
+                }
             }
             return false;
         }
         private DbSchemaColumnDataType ToDataType(DbDataReader reader)
         {
             var dataTypeString = DataSchemaTypeConverter.ConvertTo<string>(reader[DbInformationSchemaConstants.C_DATA_TYPE]);
+            var dataTypeLength = DataSchemaTypeConverter.ConvertTo<long?>(reader[DbInformationSchemaConstants.C_CHARACTER_LENGTH]) ?? -1;
             switch (dataTypeString)
             {
-                case "bigserial":
                 case "bigint": return DbSchemaColumnDataType.BigInteger;
-                case "serial":
-                case "int":
-                case "integer": return DbSchemaColumnDataType.Integer;
+                case "int": return DbSchemaColumnDataType.Integer;
+
                 case "real":
-                case "float8":
                 case "float": return DbSchemaColumnDataType.Double;
-                case "numeric": 
+
+                case "numeric":
                 case "decimal": return DbSchemaColumnDataType.Decimal;
-                case "uuid": return DbSchemaColumnDataType.UniqueIdentifier;
+                                
                 case "bit": return DbSchemaColumnDataType.Boolean;
+
+
                 case "timestamp":
-                case "timestamp without time zone": return DbSchemaColumnDataType.DateTime;
-                case "bytea": return DbSchemaColumnDataType.Blob;
+                case "datetime": return DbSchemaColumnDataType.DateTime;
+                
+                case "longblob":
+                case "mediumblob": return DbSchemaColumnDataType.Blob;
+                
                 case "varchar":
-                case "character varying":
-                    {                        
+                    {
                         return DbSchemaColumnDataType.VarString;
                     }
+                case "char":
+                    {
+                        return dataTypeLength == 38 ? DbSchemaColumnDataType.UniqueIdentifier : DbSchemaColumnDataType.VarString;
+                    }
+                case "longtext":
+                case "mediumtext":
                 case "text":
-                    {                   
+                    {
                         return DbSchemaColumnDataType.Text;
+                    }
+                case "binary":
+                    {
+                        return dataTypeLength == 16 ? DbSchemaColumnDataType.UniqueIdentifier : DbSchemaColumnDataType.Blob;
                     }
                 default:
                     {
@@ -502,16 +541,16 @@ namespace Simego.DataSync.Providers.DbSchema
         {
             switch (column.Type)
             {
-                case DbSchemaColumnDataType.BigInteger: return column.Identity ? "bigserial" : "bigint";
-                case DbSchemaColumnDataType.Integer: return column.Identity ? "serial" : "int";
+                case DbSchemaColumnDataType.BigInteger: return "bigint";
+                case DbSchemaColumnDataType.Integer: return "int";
                 case DbSchemaColumnDataType.Double: return "float";
                 case DbSchemaColumnDataType.Decimal: return $"decimal({column.Precision}, {column.Scale})";
-                case DbSchemaColumnDataType.Boolean: return "int";
-                case DbSchemaColumnDataType.DateTime: return "timestamp";
-                case DbSchemaColumnDataType.UniqueIdentifier: return "uuid";
+                case DbSchemaColumnDataType.Boolean: return "bit";
+                case DbSchemaColumnDataType.DateTime: return "datetime";
+                case DbSchemaColumnDataType.UniqueIdentifier: return "char(38)";
                 case DbSchemaColumnDataType.VarString: return $"varchar({column.Length})";
-                case DbSchemaColumnDataType.Text: return "text";
-                case DbSchemaColumnDataType.Blob: return "bytea";
+                case DbSchemaColumnDataType.Text: return "mediumtext";
+                case DbSchemaColumnDataType.Blob: return "mediumblob";
             }
 
             throw new ArgumentOutOfRangeException(nameof(column), $"Invalid Sql Type: {column}");
@@ -521,22 +560,25 @@ namespace Simego.DataSync.Providers.DbSchema
         {
             switch (column.Default)
             {
-                case DbSchemaColumnDefault.CurrentDateTime: return "DEFAULT(CURRENT_TIMESTAMP)";
-                //case DbSchemaColumnDefault.NewUniqueIdentifier: return "DEFAULT(UUID_TO_BIN(UUID(), true))";
-                case DbSchemaColumnDefault.Zero: return "DEFAULT(0)";
-                case DbSchemaColumnDefault.One: return "DEFAULT(1)";
-                case DbSchemaColumnDefault.Two: return "DEFAULT(2)";
-                case DbSchemaColumnDefault.Three: return "DEFAULT(3)";
+                case DbSchemaColumnDefault.CurrentDateTime: return "DEFAULT CURRENT_TIMESTAMP()";
+                case DbSchemaColumnDefault.NewUniqueIdentifier: return "DEFAULT (UUID())";
+                case DbSchemaColumnDefault.Zero: return "DEFAULT 0";
+                case DbSchemaColumnDefault.One: return "DEFAULT 1";
+                case DbSchemaColumnDefault.Two: return "DEFAULT 2";
+                case DbSchemaColumnDefault.Three: return "DEFAULT 3";
                 default: return string.Empty;
             }
         }
 
         private string ToSqlNotNull(DbSchemaTableColumn column) => column.NotNull ? "NOT NULL" : "NULL";
 
+        private string ToAutoIncrement(DbSchemaTableColumn column) => column.Identity ? "auto_increment primary key" : "";
+
         private static string CombineParts(string schema, string table)
         {
-            if (string.IsNullOrEmpty(schema)) return $"\"{table}\"";
-            return $"\"{schema}\".\"{table}\"";
+            if (string.IsNullOrEmpty(schema)) return $"`{table}`";
+            return $"`{schema}`.`{table}`";
         }
     }
 }
+

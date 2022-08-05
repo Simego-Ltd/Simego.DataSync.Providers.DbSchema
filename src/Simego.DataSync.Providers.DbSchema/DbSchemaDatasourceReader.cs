@@ -11,7 +11,7 @@ using System.Windows.Forms;
 
 namespace Simego.DataSync.Providers.DbSchema
 {
-    [ProviderInfo(Name = "DbSchema Synchronisation", Description = "Simego Database Schema Synchronisation", Group = "SQL")]
+    [ProviderInfo(Name = "DbSchema Synchronisation", Description = "Simego Database Schema Synchronisation (SQL Server, PostgreSQL, MySQL)", Group = "SQL")]
     public partial class DbSchemaDatasourceReader : DataReaderProviderBase, IDataSourceSetup
     {
         private ConnectionInterface _connectionIf;
@@ -33,6 +33,15 @@ namespace Simego.DataSync.Providers.DbSchema
 
         [Category("Settings")]
         public bool DoNotExecute { get; set; } = true;
+
+        [Category("Settings")]
+        public string IndexNameFormat { get; set; } = "Schema_Name";
+
+        [Category("Filter")]
+        public string FilterBySchema { get; set; }
+        
+        [Category("Filter")]
+        public string FilterByTableName { get; set; }
 
         public DbSchemaDatasourceReader()
         {
@@ -57,6 +66,9 @@ namespace Simego.DataSync.Providers.DbSchema
 
             foreach (var table in tables.Values)
             {
+                if (FilterObject(table, FilterBySchema, FilterByTableName))
+                    continue;
+
                 foreach (var column in table.Columns)
                 {
                     dt.Rows.AddWithIdentifier(mapping, columns,
@@ -93,7 +105,7 @@ namespace Simego.DataSync.Providers.DbSchema
                                             case "Schema": return table.Schema;
                                             case "ObjectType": return index.Type == DbSchemaTableColumnIndexType.Index ? "TABLE_INDEX" : "TABLE_CONSTRAINT";
                                             case "TableName": return table.Name;
-                                            case "Name": return index.GetName(hashHelper, table);
+                                            case "Name": return index.GetName(hashHelper, table, IndexNameFormat);
                                             case "IsIdentity": return false;
                                             case "IsPrimaryKey": return index.PrimaryKey;
                                             case "IsClustered": return index.Clustered;
@@ -140,6 +152,37 @@ namespace Simego.DataSync.Providers.DbSchema
 
         }
 
+        private bool FilterObject(DbSchemaTable table, string schemaFilter, string tableFilter)
+        {
+            if(!string.IsNullOrEmpty(schemaFilter) && !string.IsNullOrEmpty(tableFilter))
+            {
+                if(string.Equals(table.Schema, schemaFilter, StringComparison.OrdinalIgnoreCase) && string.Equals(table.Name, tableFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            else if (!string.IsNullOrEmpty(schemaFilter))
+            {
+                if (string.Equals(table.Schema, schemaFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            else if (!string.IsNullOrEmpty(tableFilter))
+            {
+                if (string.Equals(table.Name, tableFilter, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+            
+            return true;
+        }
+
         public override List<ProviderParameter> GetInitializationParameters()
         {
             //Return the Provider Settings so we can save the Project File.
@@ -149,7 +192,10 @@ namespace Simego.DataSync.Providers.DbSchema
                             new ProviderParameter("ConnectionString", ConnectionString),
                             new ProviderParameter("CommandWhere", CommandWhere),
                             new ProviderParameter("OutputSqlTrace", OutputSqlTrace.ToString()),
-                            new ProviderParameter("DoNotExecute", DoNotExecute.ToString())
+                            new ProviderParameter("DoNotExecute", DoNotExecute.ToString()),
+                            new ProviderParameter("FilterBySchema", FilterBySchema),
+                            new ProviderParameter("FilterByTableName", FilterByTableName),
+                            new ProviderParameter("IndexNameFormat", IndexNameFormat)
                        };
         }
 
@@ -175,6 +221,21 @@ namespace Simego.DataSync.Providers.DbSchema
                     case "CommandWhere":
                         {
                             CommandWhere = p.Value;
+                            break;
+                        }
+                    case "FilterBySchema":
+                        {
+                            FilterBySchema = p.Value;
+                            break;
+                        }
+                    case "FilterByTableName":
+                        {
+                            FilterByTableName = p.Value;
+                            break;
+                        }
+                    case "IndexNameFormat":
+                        {
+                            IndexNameFormat = p.Value;
                             break;
                         }
                     case "OutputSqlTrace":
@@ -203,7 +264,6 @@ namespace Simego.DataSync.Providers.DbSchema
 
         public override IDataSourceWriter GetWriter()
         {
-            //if your provider is read-only return null here.
             return new DbSchemaDataSourceWriter { SchemaMap = SchemaMap };
         }
 
@@ -276,13 +336,27 @@ namespace Simego.DataSync.Providers.DbSchema
 
         public void SetProvider(string name)
         {
-            if (name == "SqlClient")
+            switch (name)
             {
-                DbProvider = new SqlClientDbProvider(this);
-            }
-            else
-            {
-                DbProvider = new PostgreSqlDbProvider(this);
+                case "SqlClient":
+                    {
+                        DbProvider = new SqlClientDbProvider(this);
+                        break;
+                    }
+                case "Npgsql":
+                    {
+                        DbProvider = new PostgreSqlDbProvider(this);
+                        break;
+                    }
+                case "MySql":
+                    {
+                        DbProvider = new MySqlDbProvider(this);
+                        break;
+                    }
+                default:
+                    {
+                        throw new ArgumentException(nameof(name), $"Unknown provider type: {name}");
+                    }
             }
         }
     }

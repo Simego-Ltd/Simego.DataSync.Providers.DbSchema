@@ -1,8 +1,9 @@
 {
   "profiles": {
     "Simego.DataSync.Providers.DbSchema": {
-      "commandName": "Project",
-      "commandLineArgs": "-debug \"C:\\Users\\Sean\\source\\GitHub\\DbSchemaSync\\src\\Simego.DataSync.Providers.DbSchema\\bin\\Debug\\net472\""
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Simego\\Data Synchronisation Studio 3.0\\Simego.DataSync.Studio.exe",
+      "commandLineArgs": "-debug"
     }
   }
 }

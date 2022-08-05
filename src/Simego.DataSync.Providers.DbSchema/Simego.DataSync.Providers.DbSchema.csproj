@@ -3,12 +3,16 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyTitle>DbSchema</AssemblyTitle>
     <Product>DbSchema</Product>
-    <Copyright>Copyright ©  2021</Copyright>
+    <Copyright>Copyright © 2008-2022</Copyright>
     <OutputPath>bin\$(Configuration)\</OutputPath>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="MySql.Data" Version="8.0.30" />
+    <PackageReference Include="Npgsql" Version="6.0.5" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="Simego.DataSync">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Simego\Data Synchronisation Studio 3.0\Simego.DataSync.dll</HintPath>
+      <HintPath>..\..\3rdParty\Simego.DataSync.dll</HintPath>
     </Reference>
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>

@@ -14,6 +14,7 @@ namespace Simego.DataSync.Providers.DbSchema.Interfaces
         void GetColumns(IDictionary<string, DbSchemaTable> tables);
         void GetIndexes(IDictionary<string, DbSchemaTable> tables);
 
+        string GenerateCreateTableObject(DbSchemaTable table);
         string GenerateCreateTableObjects(DbSchemaTable table);
         string GenerateDeleteTableObjects(DbSchemaTable table);
 

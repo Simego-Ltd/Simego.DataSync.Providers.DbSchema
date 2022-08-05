@@ -14,10 +14,11 @@ namespace Simego.DataSync.Providers.DbSchema.Models
         public bool Unique { get; set; }
         public DbSchemaTableColumnIndexType Type { get; set; } = DbSchemaTableColumnIndexType.Index;    
         
-        public string GetName(HashHelper h, DbSchemaTable t)
+        public string GetName(HashHelper h, DbSchemaTable t, string indexNameFormat)
         {
             var hash = h.GetHashAsString(DataSchemaTypeConverter.ConvertTo<string>(Columns.ToArray())).Substring(0, 6);
-            return $"{(PrimaryKey ? "PK" : "IX")}_{t.Schema}_{t.Name}_{hash}";
+            var name = indexNameFormat.Replace("Schema", t.Schema).Replace("Name", t.Name);
+            return $"{(PrimaryKey ? "PK" : "IX")}_{name}_{hash}";
         }
     }
 }

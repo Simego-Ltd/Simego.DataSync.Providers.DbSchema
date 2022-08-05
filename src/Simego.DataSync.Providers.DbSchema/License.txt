@@ -1,0 +1,2 @@
+﻿https://downloads.mysql.com/docs/licenses/connector-net-8.0-gpl-en.pdf
+https://licenses.nuget.org/PostgreSQL
