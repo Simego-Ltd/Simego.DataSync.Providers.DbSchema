@@ -16,6 +16,9 @@ namespace Simego.DataSync.Providers.DbSchema.Models
         
         public string GetName(HashHelper h, DbSchemaTable t, string indexNameFormat)
         {
+            // Allow for no template when IndexNameFormat is blank
+            if (string.IsNullOrWhiteSpace(indexNameFormat)) return Name;
+            // Create a name for the Index using the IndexNameFormat template string.
             var hash = h.GetHashAsString(DataSchemaTypeConverter.ConvertTo<string>(Columns.ToArray())).Substring(0, 6);
             var name = indexNameFormat.Replace("Schema", t.Schema).Replace("Name", t.Name);
             return $"{(PrimaryKey ? "PK" : "IX")}_{name}_{hash}";
