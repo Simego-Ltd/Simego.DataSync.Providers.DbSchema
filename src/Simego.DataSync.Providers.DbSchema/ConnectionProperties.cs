@@ -1,5 +1,7 @@
 using Simego.DataSync.Providers.DbSchema.TypeConverters;
 using System.ComponentModel;
+using System.ComponentModel.Design;
+using System.Drawing.Design;
 
 namespace Simego.DataSync.Providers.DbSchema
 {
@@ -12,9 +14,10 @@ namespace Simego.DataSync.Providers.DbSchema
         public string DbProvider { get { return _reader.DbProvider.Name; } set { _reader.SetProvider(value); } }
         
         [Category("Connection")]
-        public string ConnectionString { get { return _reader.ConnectionString; } set { _reader.ConnectionString = value; } }
+        [Editor(typeof(MultilineStringEditor), typeof(UITypeEditor))] public string ConnectionString { get { return _reader.ConnectionString; } set { _reader.ConnectionString = value; } }
 
         [Category("Connection")]
+        [Editor(typeof(MultilineStringEditor), typeof(UITypeEditor))]
         public string CommandWhere { get { return _reader.CommandWhere; } set { _reader.CommandWhere = value; } }
 
         [Category("Settings")]

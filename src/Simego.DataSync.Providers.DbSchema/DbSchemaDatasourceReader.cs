@@ -5,7 +5,9 @@ using Simego.DataSync.Providers.DbSchema.Models;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.ComponentModel.Design;
 using System.Drawing;
+using System.Drawing.Design;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -23,9 +25,11 @@ namespace Simego.DataSync.Providers.DbSchema
         public string DbProviderType => DbProvider.Name;
         
         [Category("Connection")]
+        [Editor(typeof(MultilineStringEditor), typeof(UITypeEditor))] 
         public string ConnectionString { get; set; }
 
         [Category("Settings")]
+        [Editor(typeof(MultilineStringEditor), typeof(UITypeEditor))] 
         public string CommandWhere { get; set; }
 
         [Category("Settings")]
