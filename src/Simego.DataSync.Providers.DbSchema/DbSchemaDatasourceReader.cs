@@ -273,20 +273,22 @@ namespace Simego.DataSync.Providers.DbSchema
 
         #region IDataSourceSetup - Render Custom Configuration UI
         
-        public void DisplayConfigurationUI(Control parent)
+        public void DisplayConfigurationUI(IntPtr parent)
         {
+            var parentControl = Control.FromHandle(parent);
+            
             if (_connectionIf == null)
             {
                 _connectionIf = new ConnectionInterface();
                 _connectionIf.PropertyGrid.SelectedObject = new ConnectionProperties(this);
             }
 
-            _connectionIf.Font = parent.Font;
-            _connectionIf.Size = new Size(parent.Width, parent.Height);
+            _connectionIf.Font = parentControl.Font;
+            _connectionIf.Size = new Size(parentControl.Width, parentControl.Height);
             _connectionIf.Location = new Point(0, 0);
-            _connectionIf.Dock = DockStyle.Fill;
+            _connectionIf.Dock = System.Windows.Forms.DockStyle.Fill;
 
-            parent.Controls.Add(_connectionIf);
+            parentControl.Controls.Add(_connectionIf);
         }
 
         public bool Validate()
