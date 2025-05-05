@@ -168,9 +168,15 @@ namespace Simego.DataSync.Providers.DbSchema
             var columns = string.Join(",", index.Columns.Select(c => $"`{c}`"));
 
             //Drop Existing
-            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP CONSTRAINT IF EXISTS `{name}`;");
-            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP INDEX IF EXISTS `{name}`;");
-
+            if (index.Type == DbSchemaTableColumnIndexType.Constraint)
+            {
+                sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP CONSTRAINT `{name}`;");
+            }
+            else
+            {
+                sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP INDEX `{name}`;");
+            }
+            
             if (index.Type == DbSchemaTableColumnIndexType.Constraint)
             {
                 sb.Append($"ALTER TABLE `{schema}`.`{table}` ADD CONSTRAINT `{index.Name}` ");
@@ -246,8 +252,14 @@ namespace Simego.DataSync.Providers.DbSchema
             var sb = new StringBuilder();
 
             //Drop Existing
-            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP CONSTRAINT IF EXISTS `{name}`;");
-            sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP INDEX IF EXISTS `{name}`;");
+            if (index.Type == DbSchemaTableColumnIndexType.Constraint)
+            {
+                sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP CONSTRAINT `{name}`;");
+            }
+            else
+            {
+                sb.AppendLine($"ALTER TABLE `{schema}`.`{table}` DROP INDEX `{name}`;");
+            }
 
             return sb.ToString();
         }
@@ -487,6 +499,7 @@ namespace Simego.DataSync.Providers.DbSchema
             {
                 case "bigint": return DbSchemaColumnDataType.BigInteger;
                 case "int": return DbSchemaColumnDataType.Integer;
+                case "tinyint": return DbSchemaColumnDataType.TinyInt;
 
                 case "real":
                 case "float": return DbSchemaColumnDataType.Double;
@@ -551,6 +564,7 @@ namespace Simego.DataSync.Providers.DbSchema
                 case DbSchemaColumnDataType.VarString: return $"varchar({column.Length})";
                 case DbSchemaColumnDataType.Text: return "mediumtext";
                 case DbSchemaColumnDataType.Blob: return "mediumblob";
+                case DbSchemaColumnDataType.TinyInt: return "tinyint";
             }
 
             throw new ArgumentOutOfRangeException(nameof(column), $"Invalid Sql Type: {column}");
